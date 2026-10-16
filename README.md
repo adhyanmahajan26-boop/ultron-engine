@@ -19,7 +19,7 @@ A **local AI video studio**: keyframe images, image-to-video with native speech,
 
 ## Quick start
 ```bash
-git clone <this repo> ultron-engine && cd ultron-engine
+git clone https://github.com/adhyanmahajan26-boop/ultron-engine.git && cd ultron-engine
 python3 ultron.py setup        # asks: local, cloud GPU, or mixed -> then asks before EVERY model download
 python3 ultron.py doctor
 ```
