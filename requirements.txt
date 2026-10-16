@@ -1,0 +1,8 @@
+numpy
+soundfile
+librosa
+huggingface_hub
+mlx
+mlx-audio
+onnxruntime
+opencv-python

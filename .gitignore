@@ -1,0 +1,12 @@
+ultron.config.json
+ultron.env
+runtime/
+workspace/
+.venv/
+__pycache__/
+*.pyc
+*.mp4
+*.wav
+*.mp3
+*.safetensors
+.DS_Store

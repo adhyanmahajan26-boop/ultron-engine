@@ -1,0 +1,77 @@
+{
+  "_note": "size_gb values marked approx come from our own disk measurements; the wizard also asks the Hugging Face API for the real size before any download. ram_gb = peak memory we measured (Apple M3 Ultra 96 GB).",
+  "components": {
+    "video_ltx": {
+      "title": "LTX-2.5 video (image-to-video, native speech)", "role": "video",
+      "local": {"platform": "apple-silicon", "runner": "https://github.com/xocialize/ltx-2-mlx", "runner_commit": "8ebae0a",
+                "hf": [{"repo": "mlx-community/ltx-2.5-mlx-ditq8", "include": ["transformer-distilled.safetensors", "QUANT-RECIPE.json"]},
+                       {"repo": "mlx-community/ltx-2.5-mlx-q8", "exclude": ["transformer*.safetensors"]}],
+                "size_gb_approx": 43, "ram_gb_peak": {"4s_clip": 52, "10s_clip": 85}, "speed": "about 2 min per 4 s clip on M3 Ultra",
+                "license": "LTX-2 Community License (see model card)"},
+      "cloud": {"adapter_role": "video.ltx", "notes": "any CUDA host running upstream Lightricks LTX-2.5 behind the adapter protocol in docs/CLOUD.md"}
+    },
+    "video_h3": {
+      "title": "MiniMax-H3 video (best action choreography, slow)", "role": "video",
+      "local": {"platform": "apple-silicon", "server": "mlx-serve", "hf": [{"repo": "ddalcu/MiniMax-H3-FL2VA-MLX-Serve-8bit"}],
+                "size_gb_approx": 70, "ram_gb_peak": {"4s_clip": 70}, "speed": "about 13-20 min per 4 s clip on M3 Ultra", "license": "see model card"},
+      "cloud": {"adapter_role": "video.h3"}
+    },
+    "image_qwen": {
+      "title": "Qwen-Image 2.1 (text to image, keyframes)", "role": "image",
+      "local": {"platform": "apple-silicon", "server": "mlx-serve", "hf": [{"repo": "ddalcu/Qwen-Image-2.1-MLX-Serve-8bit"}], "size_gb_approx": 17.6, "ram_gb_peak": {"image": 22}, "license": "see model card"},
+      "cloud": {"adapter_role": "image.qwen"}
+    },
+    "image_fast_edit": {
+      "title": "Mage-Flow Edit Turbo (fast image edit, about 20 s)", "role": "image",
+      "local": {"platform": "apple-silicon", "server": "mlx-serve", "hf": [{"repo": "ddalcu/Mage-Flow-Edit-Turbo-MLX-Serve-8bit"}], "size_gb_approx": 9.7, "license": "see model card"},
+      "cloud": {"adapter_role": "image.fastedit"}
+    },
+    "image_edit_qwen2511": {
+      "title": "Qwen-Image-Edit 2511 (best identity-keeping edits, 5-8 min each)", "role": "image",
+      "local": {"platform": "apple-silicon", "pip": "mflux==0.22.0", "hf": [{"repo": "mlx-community/qwen-image-edit-2511-8bit"}], "size_gb_approx": null, "ram_gb_peak": {"edit": 39}, "license": "see model card"},
+      "cloud": {"adapter_role": "image.edit"}
+    },
+    "music_ace": {
+      "title": "ACE-Step 1.5 XL Turbo (music with vocals)", "role": "music",
+      "local": {"platform": "apple-silicon", "server": "mlx-serve", "hf": [{"repo": "ddalcu/ACE-Step-1.5-XL-Turbo-MLX-Serve-8bit"}], "size_gb_approx": 5.4, "license": "see model card"},
+      "cloud": {"adapter_role": "music.ace"}
+    },
+    "voice_fish": {
+      "title": "Fish Audio S2 Pro (voice clone; research licence, not for commercial use)", "role": "voice",
+      "local": {"platform": "apple-silicon", "hf": [{"repo": "mlx-community/fish-audio-s2-pro-bf16"}], "size_gb_approx": 10, "license": "Fish Audio research licence"},
+      "cloud": {"adapter_role": "voice.fish"}
+    },
+    "voice_chatterbox": {
+      "title": "Chatterbox multilingual v3 + S3 tokenizer (voice conversion, MIT)", "role": "voice",
+      "local": {"platform": "apple-silicon", "hf": [{"repo": "mlx-community/chatterbox-multilingual-v3"}, {"repo": "mlx-community/S3TokenizerV2"}], "size_gb_approx": 3.4, "license": "MIT"},
+      "cloud": {"adapter_role": "voice.convert"}
+    },
+    "tts_qwen3": {
+      "title": "Qwen3-TTS 1.7B (plain speech)", "role": "voice",
+      "local": {"platform": "apple-silicon", "server": "mlx-serve", "hf": [{"repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16"}], "size_gb_approx": 3.9, "license": "see model card"},
+      "cloud": {"adapter_role": "voice.tts"}
+    },
+    "asr_whisper": {
+      "title": "Whisper large-v3-turbo (verification, word timestamps)", "role": "asr",
+      "local": {"platform": "apple-silicon", "hf": [{"repo": "mlx-community/whisper-large-v3-turbo"}], "size_gb_approx": 1.5, "license": "MIT"},
+      "cloud": {"adapter_role": "asr.whisper"}
+    },
+    "lipsync_latentsync": {
+      "title": "LatentSync 1.5 lip-sync (optional; the LTX route does not need it)", "role": "lipsync",
+      "local": {"platform": "apple-silicon", "manual": true, "hf": [{"repo": "ByteDance/LatentSync-1.5"}], "size_gb_approx": 5,
+                "notes": "We run an Apple MLX port that is NOT published in this repo. Upstream weights are downloaded for you; the MLX port must be placed at $ULTRON_AVATAR/latentsync-mlx (see docs/MODELS.md).", "license": "see upstream"},
+      "cloud": {"adapter_role": "lipsync.latentsync"}
+    },
+    "model3d_hunyuan": {
+      "title": "Hunyuan3D 2.1 (image to 3D, optional)", "role": "3d",
+      "local": {"platform": "apple-silicon", "server": "mlx-serve", "hf": [{"repo": "ddalcu/Hunyuan3D-2.1-MLX-Serve-8bit"}], "size_gb_approx": 3.8, "license": "see model card"},
+      "cloud": {"adapter_role": "3d.hunyuan"}
+    }
+  },
+  "tools": {
+    "ffmpeg": {"check": "ffmpeg", "install": "brew install ffmpeg"},
+    "uv": {"check": "uv", "install": "brew install uv  (or https://docs.astral.sh/uv/)"},
+    "node": {"check": "node", "install": "brew install node  (HyperFrames renders via npx hyperframes)"},
+    "mlx-serve": {"check": "mlx-serve", "install": "install MLX Core / mlx-serve from https://github.com/ddalcu/mlx-serve (it serves the ddalcu/* models on 127.0.0.1:11234)"}
+  }
+}
