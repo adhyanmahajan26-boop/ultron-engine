@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Build, train and look inside a real tiny language model in 3D, right in your browser.">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>AI from Scratch</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: an instrument, not an article. The 3D stage is the main surface (left, full height);
+   the lesson is a narrow inspector rail (right). On phones the stage sits on top. */
+:root {
+  --paper: #f3f4f6; --raised: #ffffff; --well: #e7eaee; --line: #d9dde3; --control: #7d8693;
+  --ink: #111418; --ink-2: #3c4450; --muted: #5d6673;
+  --pos: #086a88; --neg: #b23c0a; --good: #136c36; --s2: #6a4bc4;
+  --stage: #070a10; --stage-ink: #e3e9f3; --stage-dim: #93a0b6; --stage-panel: rgba(12, 16, 25, 0.86); --stage-line: rgba(255, 255, 255, 0.13);
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --cond: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --top-h: 52px;
+  --rail-w: clamp(380px, 32vw, 470px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0c0f14; --raised: #171d26; --well: #141a22; --line: #222934; --control: #5a6573;
+    --ink: #e7ebf1; --ink-2: #b9c1cc; --muted: #8b95a4;
+    --pos: #4cc9f0; --neg: #ff8a4c; --good: #5fd38d; --s2: #b49cff;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0c0f14; --raised: #171d26; --well: #141a22; --line: #222934; --control: #5a6573;
+  --ink: #e7ebf1; --ink-2: #b9c1cc; --muted: #8b95a4;
+  --pos: #4cc9f0; --neg: #ff8a4c; --good: #5fd38d; --s2: #b49cff;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: calc(var(--top-h) + 16px); }
+body { background: var(--paper); color: var(--ink); font: 400 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+p, ol, ul, dl, dd, figure { margin: 0; }
+a { color: inherit; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.stage :focus-visible { outline-color: #e3e9f3; }
+.mono, code, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+code { font-size: 0.9em; }
+.pos { color: var(--pos); } .neg { color: var(--neg); } .good { color: var(--good); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.f { fill: currentColor; stroke: none; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }
+
+/* ── top bar ── */
+.top { position: fixed; inset: 0 0 auto 0; z-index: 40; padding-top: env(safe-area-inset-top, 0px); background: var(--paper); border-bottom: 1px solid var(--line); }
+.top-in { height: var(--top-h); display: flex; align-items: center; gap: 18px; padding-inline: 18px; }
+.brand { font: 600 16px/1 var(--cond); letter-spacing: 0.01em; text-decoration: none; white-space: nowrap; }
+.steps { display: flex; align-items: center; }
+.steps a { position: relative; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--control); color: var(--muted); font: 500 12px/1 var(--mono); text-decoration: none; transition: background-color 0.15s, color 0.15s, border-color 0.15s; }
+.steps a + a { margin-left: 10px; }
+.steps a + a::before { content: ""; position: absolute; right: 100%; top: 50%; width: 11px; height: 1px; background: var(--line); }
+.steps a.done { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.steps a.on { border: 2px solid var(--ink); color: var(--ink); }
+.steps a.done.on { color: var(--paper); }
+.steps a .ticks { position: absolute; left: 3px; right: 3px; bottom: -6px; display: flex; gap: 2px; }
+.steps a .ticks i { flex: 1; height: 2px; background: var(--line); border-radius: 1px; }
+.steps a .ticks i.y { background: var(--good); }
+.nav-name { font: 500 14px/1 var(--cond); color: var(--ink-2); white-space: nowrap; }
+.hud { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.xfollow { text-decoration: none; }
+.made { font-size: 14px; color: var(--ink-2); }
+.made a { font-weight: 600; }
+.hud-read { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.hud-read b { color: var(--ink); font-weight: 500; }
+.hud-prog { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; }
+.hud-prog i { display: block; height: 100%; width: 0; background: var(--ink); transition: width 0.12s linear, background-color 0.3s, opacity 0.6s; }
+.hud-prog.done i { background: var(--good); }
+
+/* ── shell ── */
+.shell { display: grid; grid-template-columns: minmax(0, 1fr) var(--rail-w); padding-top: calc(var(--top-h) + env(safe-area-inset-top, 0px)); }
+.stage-wrap { grid-column: 1; grid-row: 1; position: sticky; top: calc(var(--top-h) + env(safe-area-inset-top, 0px)); height: calc(100vh - var(--top-h) - env(safe-area-inset-top, 0px)); height: calc(100dvh - var(--top-h) - env(safe-area-inset-top, 0px)); align-self: start; }
+.rail { grid-column: 2; grid-row: 1; min-width: 0; border-left: 1px solid var(--line); padding: 32px 28px 40vh; display: grid; gap: 0; align-content: start; }
+
+/* ── stage chrome (always dark: it is a viewport) ── */
+.stage { position: relative; width: 100%; height: 100%; background: var(--stage); color: var(--stage-ink); overflow: hidden; }
+.stage canvas { display: block; touch-action: none; outline: none; }
+.stage canvas:focus-visible { box-shadow: inset 0 0 0 2px #e3e9f3; }
+.stage-fallback { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--stage-dim); font-size: 14px; }
+.st-top { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 14px 14px 0 18px; pointer-events: none; z-index: 3; }
+.st-title { min-width: 0; display: grid; gap: 2px; }
+.st-what { font: 600 16px/1.3 var(--cond); letter-spacing: 0.01em; }
+.st-meta { font-size: 12px; color: var(--stage-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-hint { font-size: 12.5px; color: var(--stage-dim); max-width: 46ch; transition: opacity 0.3s; }
+.st-hint.gone { opacity: 0; }
+.st-tools { display: flex; gap: 4px; pointer-events: auto; }
+.ib { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 6px; border: 1px solid var(--stage-line); background: var(--stage-panel); color: var(--stage-ink); padding: 0; transition: background-color 0.12s; }
+.ib:hover { background: rgba(40, 50, 70, 0.9); }
+.ib[aria-pressed="true"] { background: #dfe7f5; color: #070a10; }
+.readout { position: absolute; top: 64px; right: 14px; width: 222px; z-index: 3; padding: 10px 12px 11px; border-radius: 8px; background: var(--stage-panel); border: 1px solid var(--stage-line); font: 12px/1.4 var(--mono); display: grid; gap: 6px; pointer-events: none; }
+.ro-h { color: var(--stage-dim); font: 500 12px/1.35 var(--sans); }
+.ro-h span { color: var(--stage-ink); font-family: var(--mono); }
+.ro-r { display: grid; grid-template-columns: 1.2em minmax(0, 5.6em) minmax(0, 1fr) 3.6em; gap: 6px; align-items: center; }
+.ro-n { color: var(--stage-dim); }
+.ro-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ro-b { height: 5px; background: #1a2236; border-radius: 3px; overflow: hidden; }
+.ro-b i { display: block; height: 100%; background: #dfeefa; border-radius: 3px; transition: width 0.2s; }
+.ro-p { text-align: right; font-variant-numeric: tabular-nums; }
+.ro-r.pick .ro-t { color: #7ee8a6; }
+.ro-r.pick .ro-t::after { content: " ← picked"; color: var(--stage-dim); font-size: 10.5px; }
+.ro-k { color: var(--stage-dim); }
+.st-say { flex: 1 0 100%; order: -1; pointer-events: none; font: 500 15px/1.4 var(--sans); color: var(--stage-ink); text-shadow: 0 1px 10px #000, 0 0 2px #000; max-width: 52ch; transition: opacity 0.25s; }
+.st-say b { font: 600 12px/1 var(--mono); color: #070a10; background: #dfe7f5; border-radius: 4px; padding: 3px 6px; margin-right: 8px; vertical-align: 1px; }
+.st-say:empty { display: none; }
+.st-bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 10px 12px; padding: 0 14px 14px; pointer-events: none; z-index: 3; }
+.dock { display: flex; gap: 8px; flex-wrap: wrap; pointer-events: auto; }
+.dk { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 8px; background: var(--stage-panel); border: 1px solid var(--stage-line); }
+.dk[hidden] { display: none; }
+.dk-b { height: 32px; min-width: 32px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--stage-ink); font: 500 13px/1 var(--sans); white-space: nowrap; }
+.dk-b:hover { background: rgba(255, 255, 255, 0.08); }
+.dk-b[aria-pressed="true"], .dk-b[aria-checked="true"] { background: #dfe7f5; color: #070a10; }
+.dk-b:disabled { opacity: 0.4; cursor: default; }
+.dk-run { background: #dfe7f5; color: #070a10; font-weight: 600; }
+.dk-run:hover { background: #ffffff; }
+.dk-l { font-size: 12px; color: var(--stage-dim); padding: 0 6px; min-width: 9.5em; text-align: center; white-space: nowrap; }
+.dk-meter { display: grid; gap: 4px; padding: 0 8px; font-size: 11.5px; color: var(--stage-dim); min-width: 112px; }
+.dk-meter i { display: block; height: 3px; background: #1a2236; border-radius: 2px; overflow: hidden; }
+.dk-meter b { display: block; height: 100%; width: 0; background: #dfe7f5; transition: width 0.12s linear; }
+.dk-meter.done b { background: #7ee8a6; }
+.st-legend { pointer-events: none; display: grid; gap: 4px; justify-items: end; font: 11px/1.2 var(--mono); color: var(--stage-dim); }
+.st-legend .bar { width: 140px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ff8a4c, #1b2232 50%, #4cc9f0); }
+.st-legend .ticks { width: 140px; display: flex; justify-content: space-between; }
+.st-legend .gradkey { color: #d8ccff; max-width: 300px; text-align: right; }
+.st-legend .gradkey i { display: inline-block; width: 18px; height: 2px; background: linear-gradient(90deg, transparent, #b49cff); vertical-align: middle; margin-right: 6px; }
+.st-legend .cats { display: flex; flex-wrap: wrap; gap: 4px 10px; justify-content: flex-end; max-width: 300px; }
+.st-legend .cats i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.stage-tip { position: absolute; left: 0; top: 0; z-index: 6; width: 250px; padding: 10px 12px; border-radius: 8px; background: rgba(9, 13, 22, 0.95); border: 1px solid rgba(76, 201, 240, 0.55); font: 11.5px/1.5 var(--mono); color: var(--stage-ink); pointer-events: auto; box-shadow: 0 12px 30px -12px rgba(0, 0, 0, 0.7); }
+.stage-tip .pos { color: #4cc9f0; } .stage-tip .neg { color: #ff8a4c; }
+.tip-h { font: 600 13px/1.3 var(--cond); margin-bottom: 4px; padding-right: 18px; }
+.tip-m { color: var(--stage-dim); }
+.tip-m b { color: var(--stage-ink); }
+.tip-s { color: var(--stage-dim); margin-top: 6px; font-family: var(--sans); font-size: 11.5px; }
+.tip-f { margin-top: 6px; color: var(--stage-dim); font-family: var(--sans); font-size: 11px; }
+.tip-x { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--stage-ink); font-size: 16px; line-height: 1; }
+.tip-x:hover { background: rgba(255, 255, 255, 0.1); }
+.stage-pop { position: absolute; z-index: 7; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(380px, calc(100% - 24px)); max-height: 70%; overflow: auto; padding: 12px; border-radius: 10px; background: rgba(9, 13, 22, 0.97); border: 1px solid var(--stage-line); box-shadow: 0 20px 50px -16px rgba(0, 0, 0, 0.8); display: grid; gap: 8px; }
+.stage-pop h4 { margin: 0; font: 600 14px/1.3 var(--cond); }
+.stage-pop .pop-grid { display: flex; flex-wrap: wrap; gap: 5px; }
+.stage-pop button.w { font: 13px/1 var(--mono); padding: 7px 8px; border-radius: 4px; border: 1px solid var(--stage-line); border-left: 3px solid var(--c, #58657a); background: transparent; color: var(--stage-ink); }
+.stage-pop button.w:hover, .stage-pop button.w:focus-visible { background: rgba(255, 255, 255, 0.08); }
+.stage-pop button.w[aria-current="true"] { background: #dfe7f5; color: #070a10; }
+
+/* labels in the 3D scene */
+.stage-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
+.lbl { position: absolute; left: 0; top: 0; white-space: nowrap; font: 11.5px/1.3 var(--mono); color: var(--stage-ink); will-change: transform; }
+button.lbl { pointer-events: auto; cursor: pointer; }
+.lbl.slot { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 1px solid rgba(76, 201, 240, 0.6); background: rgba(10, 30, 42, 0.9); display: grid; place-items: center; }
+.lbl.slot i { font-style: normal; color: #cfe9f5; font-size: 10px; line-height: 1; }
+.lbl.slot:hover { background: rgba(20, 60, 80, 0.95); }
+.lbl.intake { text-align: center; font: 12.5px/1.45 var(--mono); color: var(--stage-ink); text-shadow: 0 0 8px #000; }
+.lbl.intake .k { color: var(--stage-dim); margin-right: 6px; font-family: var(--sans); font-size: 11.5px; }
+.lbl.intake .k2 { display: block; font-size: 11px; color: var(--stage-dim); }
+.lbl.intake .k2 b { color: #e3e9f3; font-weight: 500; }
+.lbl.layer { border: 0; background: none; padding: 2px 4px; text-align: center; font: 500 13px/1.25 var(--cond); color: #c9d4e8; border-radius: 4px; }
+.lbl.layer small { display: block; font: 10.5px/1.3 var(--mono); color: var(--stage-dim); }
+.lbl.layer:hover { background: rgba(255, 255, 255, 0.06); }
+.lbl.rank { font-size: 10.5px; padding: 0 4px; border-radius: 3px; background: #0b1220; border: 1px solid #4cc9f0; color: #e3f6ff; }
+.lbl.emb { font-size: 11.5px; color: var(--c, #dfe7f5); text-shadow: 0 0 6px #000, 0 0 2px #000; }
+.lbl.emb.sel { font-size: 14px; font-weight: 600; color: #fff; }
+.lbl.nlbl { background: rgba(8, 12, 22, 0.8); padding: 3px 8px; border-radius: 5px; border: 1px solid var(--stage-line); font-size: 12px; }
+.lbl.nlbl.big { font-size: 13px; }
+.lbl.wlbl { font-size: 11px; color: #b9c6dd; text-shadow: 0 0 6px #000; }
+.lbl.axis { font-size: 11px; color: #8796b2; }
+.lbl.tinfo { background: rgba(8, 12, 22, 0.92); padding: 4px 9px; border-radius: 5px; border: 1px solid var(--stage-line); font-size: 12px; }
+
+/* ── rail content ── */
+.hero { display: grid; gap: 16px; padding-bottom: 48px; }
+.hero h1 { font: 600 40px/1.04 var(--cond); letter-spacing: -0.01em; }
+.lede { font-size: 17px; line-height: 1.55; color: var(--ink-2); }
+.chapter { display: grid; gap: 18px; padding-block: 56px 8px; border-top: 1px solid var(--line); }
+.chh { display: flex; align-items: center; gap: 12px; }
+.chh .cell { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 4px; border: 1px solid var(--control); font: 500 13px/1 var(--mono); color: var(--muted); }
+.chh .cell.done { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.chh h2 { font: 600 28px/1.1 var(--cond); letter-spacing: -0.005em; }
+.chapter h3 { font: 600 19px/1.25 var(--sans); margin-top: 18px; }
+.beat { display: grid; gap: 14px; }
+.prose { display: grid; gap: 12px; color: var(--ink); }
+.prose p, p.prose { display: block; }
+.prose strong, .lede strong { font-weight: 600; }
+.note { font-size: 14px; line-height: 1.55; color: var(--muted); }
+.callout { padding-left: 14px; border-left: 2px solid var(--ink); }
+ol.plain { padding-left: 1.2em; display: grid; gap: 6px; }
+button.term { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: inherit; text-decoration: underline dotted 2px; text-underline-offset: 3px; }
+button.term:hover { text-decoration-style: solid; }
+
+/* tasks */
+.tasks { list-style: none; padding: 0; display: grid; gap: 6px; }
+.tasks li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 10px; align-items: start; font-size: 14.5px; line-height: 1.45; color: var(--ink-2); padding: 2px 4px; margin-inline: -4px; border-radius: 4px; transition: background-color 1.2s; }
+.tasks li::before { content: ""; width: 14px; height: 14px; margin-top: 3px; border-radius: 3px; border: 1.5px solid var(--control); }
+.tasks li.y::before { background: var(--good) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3.5 7.2l2.3 2.3 4.7-5' fill='none' stroke='white' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat; border-color: var(--good); }
+.tasks li.y { color: var(--muted); }
+.tasks li.flash { background: color-mix(in srgb, var(--good) 16%, transparent); transition: none; }
+.tasks .live { font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin-left: 6px; }
+
+/* groups (controls that drive the model): a hairline, not a card */
+.group { display: grid; gap: 14px; padding-top: 16px; border-top: 1px solid var(--line); min-width: 0; }
+.group-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.group-h h4 { margin: 0; font: 600 14px/1.3 var(--cond); letter-spacing: 0.02em; color: var(--ink); }
+.group-h .note { font-size: 13px; }
+.well { background: var(--well); border-radius: 4px; padding: 10px 12px; min-width: 0; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* buttons */
+.btn { height: 36px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 6px; border: 1px solid var(--control); background: transparent; font: 500 14px/1 var(--sans); white-space: nowrap; transition: background-color 0.12s, transform 0.08s, border-color 0.12s; }
+.btn:hover { background: var(--well); }
+.btn:active { transform: translateY(1px); }
+.btn.run { background: var(--ink); color: var(--paper); border-color: var(--ink); font-weight: 600; position: relative; overflow: hidden; }
+.btn.run:hover { background: var(--ink-2); border-color: var(--ink-2); }
+.btn.run .bar { position: absolute; left: 0; bottom: 0; height: 3px; width: var(--p, 0%); background: var(--pos); transition: width 0.12s linear; }
+.btn.icon { width: 36px; padding: 0; }
+.btn.sm { height: 30px; padding: 0 11px; font-size: 13px; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.45; cursor: default; transform: none; }
+.btn.link { border: 0; height: auto; padding: 0; background: none; text-decoration: underline; text-underline-offset: 3px; font-weight: 500; }
+.btn.link:hover { background: none; color: var(--ink-2); }
+.transport { display: inline-flex; }
+.transport .btn { border-radius: 0; }
+.transport .btn + .btn { border-left-width: 0; }
+.transport .btn:first-child { border-radius: 6px 0 0 6px; }
+.transport .btn:last-child { border-radius: 0 6px 6px 0; }
+@media (pointer: coarse) { .btn { height: 44px; } .btn.sm { height: 38px; } .btn.icon { width: 44px; } .ib { width: 38px; height: 38px; } .dk-b { height: 38px; min-width: 38px; } }
+
+/* segmented controls */
+.seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 6px; border: 1px solid var(--control); max-width: 100%; flex-wrap: wrap; }
+.seg button { border: 0; background: transparent; border-radius: 4px; padding: 6px 11px; font: 500 13px/1.15 var(--sans); color: var(--ink-2); transition: background-color 0.12s, color 0.12s; }
+.seg button small { display: block; font: 10.5px/1.2 var(--mono); color: var(--muted); }
+.seg button[aria-checked="true"] { background: var(--ink); color: var(--paper); }
+.seg button[aria-checked="true"] small { color: color-mix(in srgb, var(--paper) 75%, transparent); }
+.seg button:hover:not([aria-checked="true"]) { background: var(--well); }
+.seg[aria-disabled="true"] { opacity: 0.55; }
+
+/* sliders: label + value on top, track below */
+.fader { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; }
+.fader label { font-size: 13.5px; color: var(--ink-2); }
+.fader output { font: 500 13px/1 var(--mono); padding: 4px 6px; background: var(--well); border-radius: 4px; min-width: 3.6em; text-align: right; font-variant-numeric: tabular-nums; }
+.fader input { grid-column: 1 / -1; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; background: transparent; margin: 0; --fill: linear-gradient(var(--well), var(--well)); }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 22px; margin-top: -9px; border-radius: 3px; background: var(--raised); border: 2px solid var(--ink); }
+input[type="range"]::-moz-range-thumb { width: 8px; height: 18px; border-radius: 3px; background: var(--raised); border: 2px solid var(--ink); }
+input[type="range"]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+input[type="text"], select { height: 40px; width: 100%; padding: 0 12px; border-radius: 6px; border: 1px solid var(--control); background: var(--raised); font: 15px/1 var(--mono); }
+select { appearance: none; -webkit-appearance: none; padding-right: 32px; height: 36px; font-size: 13.5px; background: var(--raised) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%237d8693' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center / 12px; width: auto; max-width: 100%; }
+label.check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink-2); cursor: pointer; }
+label.check input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--ink); flex: none; }
+
+/* chips, bars, vectors */
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font: 13px/1.2 var(--mono); padding: 5px 8px 4px; border-radius: 4px; background: var(--well); border: 1px solid transparent; display: inline-grid; justify-items: center; }
+.chip small { font-size: 10.5px; color: var(--muted); }
+.chip.tok { background: hsl(var(--h) 55% 92%); border-color: hsl(var(--h) 38% 74%); }
+.chip.gone { opacity: 0.4; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip.tok { background: hsl(var(--h) 42% 15%); border-color: hsl(var(--h) 38% 32%); } }
+:root[data-theme="dark"] .chip.tok { background: hsl(var(--h) 42% 15%); border-color: hsl(var(--h) 38% 32%); }
+button.chip { cursor: pointer; border-color: var(--line); background: transparent; transition: background-color 0.12s, border-color 0.12s; }
+button.chip:hover { background: var(--well); }
+button.chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+button.chip.cat { border-left: 3px solid var(--c); }
+.bars { display: grid; gap: 5px; }
+.bar { display: grid; grid-template-columns: 7em minmax(0, 1fr) 4.2em; gap: 10px; align-items: center; font: 13px/1.2 var(--mono); }
+.bar .track { height: 8px; background: var(--well); border-radius: 2px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--ink-2); border-radius: 2px; transition: width 0.3s ease; }
+.bar.hit .fill { background: var(--good); }
+.bar.hit span:first-child { color: var(--good); font-weight: 600; }
+.bar span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.vec { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 3px; }
+.vec div { font: 11px/1 var(--mono); text-align: center; padding: 7px 0; border-radius: 3px; font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; }
+.strip { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 2px; }
+.strip button { height: 22px; border-radius: 3px; border: 0; padding: 0; }
+.strip button[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 1px; }
+.eq { font: 13px/1.85 var(--mono); overflow-x: auto; font-variant-numeric: tabular-nums; }
+.eq b { font-weight: 600; }
+.terms { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5em, 1fr)); gap: 1px 14px; max-height: 210px; overflow: auto; font: 12px/1.65 var(--mono); font-variant-numeric: tabular-nums; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 12px/1.3 var(--cond); letter-spacing: 0.03em; color: var(--muted); }
+th.math { text-transform: none; }
+td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+tr.now td { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+
+/* readout rows (numbers that matter) */
+dl.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--line); }
+dl.stats > div { padding: 8px 10px; display: grid; gap: 2px; min-width: 0; }
+dl.stats > div + div { border-left: 1px solid var(--line); }
+dl.stats dt { font-size: 12px; color: var(--muted); }
+dl.stats dd { font: 500 17px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+dl.stats dd small { display: block; font: 11px/1.3 var(--mono); color: var(--muted); }
+
+/* progress */
+.prog { display: grid; gap: 6px; }
+.prog-track { height: 6px; background: var(--well); border-radius: 3px; overflow: hidden; }
+.prog-track i { display: block; height: 100%; width: 0; background: var(--ink); transition: width 0.12s linear, background-color 0.3s; }
+.prog.done .prog-track i { background: var(--good); }
+.prog-text { font: 12.5px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* pipeline stepper for the forward pass */
+.pipe { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: relative; }
+.pipe::before { content: ""; position: absolute; left: 10%; right: 10%; top: 14px; height: 2px; background: var(--line); }
+.pipe button { position: relative; display: grid; justify-items: center; gap: 6px; border: 0; background: none; padding: 0; font: 500 12px/1.2 var(--sans); color: var(--muted); }
+.pipe button span { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--control); background: var(--paper); font: 500 12px/1 var(--mono); color: var(--muted); transition: background-color 0.15s, color 0.15s, border-color 0.15s; }
+.pipe button.done span { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.pipe button[aria-selected="true"] span { border: 2px solid var(--ink); background: var(--paper); color: var(--ink); }
+.pipe button[aria-selected="true"] { color: var(--ink); }
+.slots { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.slots button.slot { font: 14px/1 var(--mono); height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--control); background: var(--raised); display: inline-flex; gap: 6px; align-items: center; }
+.slots button.slot[aria-expanded="true"] { border: 2px solid var(--ink); }
+.slots button.slot i { font-style: normal; color: var(--muted); font-size: 11px; }
+.slots .arrow { color: var(--muted); font-family: var(--mono); }
+.picker { display: flex; flex-wrap: wrap; gap: 5px; }
+
+/* disclosure */
+details.more { border-block: 1px solid var(--line); }
+details.more > summary { list-style: none; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 10px; font: 500 14.5px/1.3 var(--sans); }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before { content: ""; width: 16px; height: 16px; flex: none; background: currentColor; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5l4.5 4.5L6 12.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/16px no-repeat; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5l4.5 4.5L6 12.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/16px no-repeat; transition: transform 0.16s; }
+details.more[open] > summary::before { transform: rotate(90deg); }
+details.more > div { padding-bottom: 16px; display: grid; gap: 12px; }
+details + details { border-top: 0; }
+
+/* charts */
+canvas.chart { width: 100%; height: 200px; display: block; }
+canvas.chart.short { height: 150px; }
+.legend-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.legend-row i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--ink); vertical-align: middle; margin-right: 6px; }
+.legend-row i.dash { border-top: 2px dashed var(--s2); }
+.legend-row i.band { height: 8px; border: 0; background: color-mix(in srgb, var(--s2) 18%, transparent); }
+
+/* predict-then-check */
+.predict { display: grid; gap: 8px; padding-left: 14px; border-left: 2px solid var(--control); }
+.predict .q { font-weight: 500; }
+.predict .verdict { font-size: 14px; }
+.predict.right { border-left-color: var(--good); }
+
+/* guess game, writing */
+.guess-q { font: 18px/1.4 var(--mono); }
+.guess-q .blank { display: inline-block; min-width: 4.5em; border-bottom: 2px solid var(--ink); text-align: center; }
+.verdict { font-size: 14px; color: var(--ink-2); }
+.gen-out { font: 16px/1.9 var(--mono); min-height: 2em; display: flex; flex-wrap: wrap; gap: 3px; align-items: center; position: relative; }
+.gen-out .t { padding: 1px 6px; border-radius: 4px; border: 1px solid transparent; background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.gen-out button.t { font: inherit; cursor: pointer; }
+.gen-out button.t:hover, .gen-out button.t[aria-pressed="true"] { border-color: var(--ink); }
+.gen-out .t.prompt { background: transparent; border-color: var(--line); color: var(--muted); }
+.gen-out .t.seen { box-shadow: inset 0 -2px 0 var(--ink); }
+.gen-out .t.gone { opacity: 0.45; }
+.gen-out .t.new { animation: pop 0.35s ease; }
+@keyframes pop { from { transform: translateY(-4px); opacity: 0; } }
+.samples { font: 12.5px/1.6 var(--mono); display: grid; max-height: 160px; overflow: auto; }
+.samples div span { color: var(--muted); display: inline-block; min-width: 6em; }
+.summary { padding-left: 14px; border-left: 3px solid var(--good); display: grid; gap: 10px; font-size: 14.5px; }
+.undo { font-size: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.legend-dots { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--ink-2); }
+.legend-dots i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.dataset { font: 12.5px/1.6 var(--mono); columns: 2; column-gap: 20px; max-height: 240px; overflow: auto; }
+.dataset div.held { font-style: italic; color: var(--muted); }
+.dataset div.held::after { content: " · held out"; font-style: normal; font-size: 10.5px; }
+.recap { padding: 0; list-style: none; display: grid; gap: 10px; counter-reset: r; }
+.recap li { display: grid; grid-template-columns: 1.8em minmax(0, 1fr); gap: 6px; }
+.recap li::before { counter-increment: r; content: counter(r); font: 500 13px/1.6 var(--mono); color: var(--muted); }
+footer.end { padding-top: 48px; display: grid; gap: 12px; font-size: 14px; color: var(--muted); }
+.toast { position: fixed; z-index: 50; top: calc(var(--top-h) + env(safe-area-inset-top, 0px) + 10px); right: 16px; max-width: min(360px, calc(100vw - 32px)); padding: 10px 12px; border-radius: 8px; background: var(--ink); color: var(--paper); font-size: 14px; display: flex; gap: 10px; align-items: flex-start; box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.5); }
+.toast a { color: inherit; }
+.toast button { border: 0; background: none; color: inherit; font-size: 18px; line-height: 1; padding: 0 2px; }
+
+/* ── narrow screens: stage on top, rail below ── */
+@media (max-width: 1100px) { :root { --rail-w: 380px; } .nav-name { display: none; } }
+@media (max-width: 900px) {
+  :root { --top-h: 46px; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .stage-wrap { grid-column: 1; grid-row: 1; height: clamp(270px, 48dvh, 440px); z-index: 20; border-bottom: 1px solid var(--line); }
+  .rail { grid-column: 1; grid-row: 2; border-left: 0; padding: 20px 16px 40vh; }
+  .brand { display: none; }
+  .top-in { gap: 10px; padding-inline: 12px; }
+  .steps a { width: 26px; height: 26px; }
+  .steps a + a { margin-left: 6px; }
+  .steps a + a::before { width: 7px; }
+  .st-top { padding: 10px 10px 0 12px; }
+  .st-what { font-size: 14px; }
+  .st-hint { display: none; }
+  .st-tools .ib:not(#tReset) { display: none; }
+  .readout { top: 54px; bottom: auto; left: 12px; right: 12px; width: auto; padding: 5px 9px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; }
+  .st-bottom { padding: 0 10px 10px; }
+  .st-legend { display: none; }
+  .st-say { font-size: 13px; }
+  .dk-l { min-width: 3.4em; padding: 0 2px; }
+  .dk-l .long { display: none; }
+  .dk-meter { min-width: 76px; }
+  .lbl { font-size: 10.5px; }
+  .lbl.intake .k2 { display: none; }
+  .lbl.intake { font-size: 11px; }
+  .lbl.layer { font-size: 11px; }
+  .lbl.layer small { display: none; }
+  .lbl.wlbl { display: none; }
+  .stage-tip { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; max-height: 55%; overflow: auto; transform: none !important; }
+  .hero h1 { font-size: 34px; }
+  .chh h2 { font-size: 24px; }
+  dl.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  dl.stats > div:nth-child(3) { border-left: 0; }
+  dl.stats > div:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  .dataset { columns: 1; }
+}
+@media (max-width: 480px) {
+  .hud-read .long { display: none; }
+  .xfollow span { display: none; }
+  .xfollow { width: 38px; padding: 0; }
+  .bar { grid-template-columns: 5.8em minmax(0, 1fr) 3.8em; }
+  .vec div { font-size: 9.5px; }
+  .pipe button { font-size: 10.5px; }
+}
+</style>
+</head>
+<body>
+
+
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#hero">AI from Scratch</a>
+    <nav class="steps" id="nav" aria-label="Chapters">
+      <a href="#ch1" data-ch="1" aria-label="Chapter 1: What is AI">1</a>
+      <a href="#ch2" data-ch="2" aria-label="Chapter 2: Tokens">2</a>
+      <a href="#ch3" data-ch="3" aria-label="Chapter 3: Embeddings">3</a>
+      <a href="#ch4" data-ch="4" aria-label="Chapter 4: One neuron">4</a>
+      <a href="#ch5" data-ch="5" aria-label="Chapter 5: The network">5</a>
+      <a href="#ch6" data-ch="6" aria-label="Chapter 6: Training">6</a>
+      <a href="#ch7" data-ch="7" aria-label="Chapter 7: Generating">7</a>
+    </nav>
+    <span class="nav-name" id="navName">Start</span>
+    <div class="hud">
+      <a class="btn sm xfollow" href="https://x.com/adhyan1227" target="_blank" rel="noopener" aria-label="Follow @adhyan1227 on X"><svg class="i f" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.2 1.5h2.2L9.6 7l5.6 7.5h-4.4L7.4 9.9l-3.9 4.6H1.3l5.2-6L1 1.5h4.5l3.1 4.1zm-.8 11.7h1.2L4.7 2.7H3.4z"/></svg><span>Follow @adhyan1227</span></a>
+      <span class="hud-read mono" id="hudRead"><span class="long">your model · </span>step <b id="hudStep">0</b></span>
+      <button class="btn run sm" id="hudTrain" type="button">Train</button>
+    </div>
+  </div>
+  <div class="hud-prog" id="hudProg" aria-hidden="true"><i></i></div>
+</header>
+
+<div class="shell">
+  <section class="stage-wrap" aria-label="3D view">
+    <div class="stage" id="stage" data-mode="hero">
+      <div class="stage-fallback" id="stageFallback">Starting the 3D view…</div>
+      <div class="st-top">
+        <div class="st-title">
+          <div class="st-what" id="stageWhat">The pre-trained copy</div>
+          <div class="st-meta mono" id="stageMeta">training in your browser…</div>
+          <div class="st-hint" id="stageHint">Drag to turn. Hover a neuron to see its numbers.</div>
+        </div>
+        <div class="st-tools" role="toolbar" aria-label="3D view controls">
+          <button class="ib" id="tReset" type="button" aria-label="Reset view" title="Reset view"><svg class="i" viewBox="0 0 16 16"><path d="M3.2 6.2A5 5 0 1 1 3 9.5"/><path d="M2.8 2.8v3.6h3.6"/></svg></button>
+        </div>
+      </div>
+      <div class="readout" id="readout" hidden></div>
+            <div class="st-bottom">
+        <div class="st-say" id="stSay" aria-live="polite"></div>
+        <div class="dock" id="dock">
+          <div class="dk" id="dkStep" role="group" aria-label="Step through the prediction">
+            <button class="dk-b" id="dkPrev" type="button" aria-label="Previous step"><svg class="i" viewBox="0 0 16 16"><path d="M10 3.5L5.5 8 10 12.5"/></svg></button>
+            <span class="dk-l mono" id="dkLabel">5/5</span>
+            <button class="dk-b" id="dkNext" type="button" aria-label="Next step"><svg class="i" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5"/></svg></button>
+            <button class="dk-b dk-run" id="dkRun" type="button"><svg class="i f" viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z"/></svg>Replay</button>
+          </div>
+          <div class="dk" id="dkTrain" role="group" aria-label="Training" hidden>
+            <button class="dk-b dk-run" id="dkTrainBtn" type="button">Train</button>
+            <button class="dk-b" id="dkStepBtn" type="button" aria-label="One training step" title="One training step">+1</button>
+            <span class="dk-meter mono" id="dkMeter"><span id="dkCount">0 / 2,000</span><i><b id="dkBar"></b></i></span>
+          </div>
+        </div>
+        <div class="st-legend" id="stLegend"></div>
+      </div>
+      <div class="stage-tip" id="stageTip" hidden></div>
+      <div class="stage-pop" id="stagePop" hidden role="dialog" aria-label="Choose a word"></div>
+    </div>
+  </section>
+
+  <main class="rail" id="rail">
+    <!-- opening -->
+    <section class="hero beat" id="hero" data-scene="hero" data-model="ref">
+      <h1>AI from Scratch</h1>
+      <p class="lede">ChatGPT writes by guessing the next piece of text, over and over. The network in the 3D view does the same job with <strong id="factParams">11,105</strong> adjustable numbers, trained right here in your browser on 94 short sentences.</p>
+      <div class="group" id="guessGroup">
+        <div class="group-h"><h4>Try it: you are the language model</h4><span class="note mono" id="guessCount">1 of 3</span></div>
+        <div class="guess-q" id="guessQ"></div>
+        <div class="chips" id="guessOpts"></div>
+        <p class="note" id="guessWait" hidden>The model is still training. One moment…</p>
+        <div id="guessReveal" hidden class="beat">
+          <p class="verdict" id="guessVerdict"></p>
+          <div class="bars" id="guessBars"></div>
+          <div class="row"><button class="btn sm" id="guessNext" type="button">Next sentence</button><span class="note" id="guessScore"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 1 -->
+    <section class="chapter" id="ch1" data-ch="1">
+      <header class="chh"><span class="cell" data-cell="1">1</span><h2>What is AI, really?</h2></header>
+      <div class="beat prose" data-scene="hero" data-model="ref">
+        <p>Normal programs follow rules that people write. Machine learning works the other way round. You build a machine full of adjustable numbers, show it examples, and tune the numbers until its answers match.</p>
+        <details class="more"><summary>Why not just write the rules?</summary><div><p>Nobody can write down every rule for "understand a sentence" or "spot a cat in a photo". There are too many and they are fuzzy. A learning machine finds its own rules, and they end up stored in its numbers.</p></div></details>
+        <p class="callout">A <strong>language model</strong> does one job: read some text and guess what comes next. To write an answer, it guesses one piece, adds it to the text, and guesses again.</p>
+      </div>
+      <div class="beat" data-scene="hero" data-model="ref" data-gen="ch1">
+        <div class="group">
+          <div class="group-h"><h4>Watch it write</h4><button class="btn run sm" id="ch1Gen" type="button" disabled>Warming up…</button></div>
+          <div class="gen-out" id="ch1Out"><span class="note">The model starts from nothing and adds one piece at a time until it writes a full stop.</span></div>
+          <div class="bars" id="ch1Bars"></div>
+          <p class="note" id="ch1Note">At every step it gives each possible next piece a probability, then picks one at random by those odds. ChatGPT does the same with a vocabulary of 100,000 or more pieces.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="chapter" id="ch2" data-ch="2">
+      <header class="chh"><span class="cell" data-cell="2">2</span><h2>Turning text into numbers</h2></header>
+      <div class="beat prose" data-scene="tiles">
+        <p>A network can only do arithmetic, so text has to become numbers. A <strong>tokenizer</strong> splits text into pieces called <strong>tokens</strong> and gives each one an ID from a fixed list, the <strong>vocabulary</strong>.</p>
+        <p>GPT models use <strong>Byte-Pair Encoding</strong> (BPE). It starts from single letters and keeps gluing the most common neighbouring pair into a new token.</p>
+      </div>
+      <div class="beat" data-scene="tiles">
+        <div class="group">
+          <div class="group-h"><h4>Run the tokenizer</h4><span class="note mono" id="tokStats"></span></div>
+          <input type="text" id="tokInput" value="the happy fox drinks juice." placeholder="Try a word it never saw, like your name" autocomplete="off" spellcheck="false" aria-label="Text to tokenize">
+          <div class="fader"><label for="tokMerges">Merges applied</label><output id="tokMergesOut" for="tokMerges">134</output><input type="range" id="tokMerges" min="0" max="134" value="134"></div>
+          <div class="row">
+            <div class="transport">
+              <button class="btn icon" id="tokPrev" type="button" aria-label="Undo one merge"><svg class="i" viewBox="0 0 16 16"><path d="M10 3.5L5.5 8 10 12.5"/></svg></button>
+              <button class="btn" id="tokPlay" type="button"><svg class="i f" viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z"/></svg>Replay from 0</button>
+              <button class="btn icon" id="tokNext" type="button" aria-label="Apply the next merge"><svg class="i" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5"/></svg></button>
+            </div>
+          </div>
+          <p class="mono note" id="tokMergeNow" aria-live="polite"></p>
+          <div class="chips" id="tokChips"></div>
+          <p class="note"><span class="mono">␣</span> marks a space. Like GPT's tokenizer, ours keeps the space at the front of a word, so <span class="mono">␣cat</span> is one token. A word it never saw splits into smaller pieces. Click a tile in the 3D view to see how it was built.</p>
+        </div>
+        <details class="more"><summary><span>All <span id="mergeCount">134</span> merges, in the order BPE learned them</span></summary><div>
+          <div class="tbl-wrap well" style="max-height:260px;overflow:auto;padding:0 4px" id="mergeWrap">
+            <table><thead><tr><th class="n">#</th><th>Glue</th><th>New token</th><th class="n">Seen</th></tr></thead><tbody id="mergeRows"></tbody></table>
+          </div>
+          <p class="note">That list is the whole tokenizer. New text is split by applying the merges in the same order. Our vocabulary has <span class="vs">163</span> tokens. GPT-4's tokenizer, <span class="mono">cl100k_base</span>, has about 100,000, learned the same way from far more text.</p>
+        </div></details>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="chapter" id="ch3" data-ch="3">
+      <header class="chh"><span class="cell" data-cell="3">3</span><h2>Giving each token a meaning</h2></header>
+      <div class="beat prose" data-scene="embed">
+        <p>An ID like 45 is only a label. So the model's first move is to look the ID up in a table and swap it for a row of 10 numbers, called an <strong>embedding</strong>. The rows start out random. Training nudges them until tokens used in similar ways get similar numbers.</p>
+      </div>
+      <div class="beat" data-scene="embed">
+        <div class="group">
+          <div class="group-h"><h4>Look up a word's row</h4><span class="note mono" id="embStep"></span></div>
+          <div class="chips" id="embChips"></div>
+          <div class="well"><div class="vec" id="embVec"></div></div>
+          <p class="mono note" id="embNear"></p>
+          <div class="row">
+            <button class="btn run" id="embTrain" type="button">Train 800 steps and watch<span class="bar"></span></button>
+            <button class="btn" id="embReset" type="button">Start over from random</button>
+          </div>
+          <p class="mono note" id="embProg"></p>
+          <p class="note">The 3D map squeezes 10 numbers into 3 (with a method called PCA), so distances there are approximate. The closest-words line uses all 10 numbers. The colours are only for you: the model never sees these groups.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="chapter" id="ch4" data-ch="4">
+      <header class="chh"><span class="cell" data-cell="4">4</span><h2>One neuron, every number shown</h2></header>
+      <div class="beat prose" data-scene="neuron">
+        <p>A network is built from <strong>neurons</strong>. Each one does three small things:</p>
+        <ol class="plain">
+          <li>Multiply each input by its own <strong>weight</strong>. A negative weight argues against.</li>
+          <li>Add everything up, plus one extra number, the <strong>bias</strong>.</li>
+          <li>Squash the total with <span class="mono">tanh</span>, which turns any number into one between −1 and +1.</li>
+        </ol>
+        <p>This neuron decides whether to go to the park.</p>
+      </div>
+      <div class="beat" data-scene="neuron">
+        <div class="group">
+          <div class="group-h"><h4>Inputs and weights</h4><button class="btn sm" id="nReset" type="button">Reset</button></div>
+          <div id="nSliders" style="display:grid;gap:10px"></div>
+          <div class="well eq" id="nEq"></div>
+          <canvas class="chart short" id="tanhChart" aria-label="Graph of tanh with the neuron's current value marked"></canvas>
+        </div>
+      </div>
+      <div class="beat" data-scene="neuron">
+        <h3>How a neuron learns</h3>
+        <p class="prose">Pick the right answer for today. The <strong>loss</strong>, <span class="mono">(a − target)²</span>, measures how wrong the neuron is. The <strong>gradient</strong> says which way each weight should move to shrink it. Learning is a small step against the gradient.</p>
+        <div class="group">
+          <div class="seg" id="nTarget" role="radiogroup" aria-label="Right answer">
+            <button type="button" role="radio" aria-checked="true" data-t="1">Right answer: go (+1)</button>
+            <button type="button" role="radio" aria-checked="false" data-t="-1">Stay home (−1)</button>
+          </div>
+          <div class="fader"><label for="nLr">Learning rate</label><output id="nLrOut" for="nLr">0.30</output><input type="range" id="nLr" min="0.05" max="1" step="0.05" value="0.3"></div>
+          <div class="row"><button class="btn run" id="nStep" type="button">Take one step</button><button class="btn" id="nStep10" type="button">10 steps</button></div>
+          <div class="well eq" id="nGrad"></div>
+          <div class="samples" id="nHist"></div>
+        </div>
+        <details class="more"><summary>The math: the chain rule</summary><div>
+          <p>We want <span class="mono">∂loss/∂w₁</span>, how much the loss changes when w₁ moves a tiny bit. The loss depends on <span class="mono">a</span>, which depends on <span class="mono">z</span>, which depends on <span class="mono">w₁</span>. The chain rule multiplies the three local slopes:</p>
+          <div class="well eq">∂loss/∂w₁ = ∂loss/∂a × ∂a/∂z × ∂z/∂w₁<br>= 2(a − target) × (1 − a²) × x₁</div>
+          <p><span class="mono">(1 − a²)</span> is the slope of tanh. When the neuron is stuck near ±1 that slope is close to 0, and learning slows down. Big networks apply the same rule backwards through every layer. That is <strong>backpropagation</strong>.</p>
+        </div></details>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="chapter" id="ch5" data-ch="5">
+      <header class="chh"><span class="cell" data-cell="5">5</span><h2>Stacking neurons into a network</h2></header>
+      <div class="beat prose" data-scene="net" data-model="fwd">
+        <p>Our model reads the last 3 tokens and predicts the next one. It has three layers: the <button type="button" class="term" data-layer="0">embeddings</button> (3 × 10 = 30 numbers), a <button type="button" class="term" data-layer="1">hidden layer</button> of 48 neurons like the one in Chapter 4, and an <button type="button" class="term" data-layer="2">output</button> score for each of the <span class="vs">163</span> tokens. Click a layer name to zoom to it.</p>
+        <p>It all starts with the tokenizer. In the 3D view, your text cracks into token tiles, each with its ID, and every tile drops into its row of the embedding table. Every line after that is a weight. <strong>Hover or tap any neuron</strong> to see its real numbers, and click a tile to change the word.</p>
+      </div>
+      <div class="beat" data-scene="net" data-model="fwd" data-fwd="1">
+        <div class="group">
+          <div class="group-h"><h4>Follow one prediction</h4></div>
+          <div class="seg" id="fwdWho" role="radiogroup" aria-label="Which model">
+            <button type="button" role="radio" aria-checked="true" data-who="ref">Pre-trained copy</button>
+            <button type="button" role="radio" aria-checked="false" data-who="learner">Your model<small id="fwdWhoStep">step 0</small></button>
+          </div>
+          <input type="text" id="fwdText" value="the cow eats" autocomplete="off" spellcheck="false" placeholder="Type your own text" aria-label="Text for the model to read">
+          <div class="chips" id="fwdTokens"></div>
+          <p class="note" id="fwdTokNote">The tokenizer breaks your text into tokens. The model only reads the last 3 (the faded ones are out of its view).</p>
+          <div class="slots" id="fwdSlots" hidden></div>
+          <div class="picker" id="fwdPicker" hidden></div>
+          <div class="row" id="fwdEx"><span class="note">Try:</span></div>
+          <div class="pipe" id="fwdSteps" role="tablist" aria-label="Forward pass steps"></div>
+          <div class="row"><button class="btn sm" id="fwdBack" type="button">Back</button><button class="btn sm" id="fwdNextB" type="button">Next step</button><button class="btn run sm" id="fwdRun" type="button">Play all 5</button></div>
+          <div class="beat" id="fwdBody" role="tabpanel"></div>
+          <p class="note" id="fwdNote"></p>
+        </div>
+        <details class="more"><summary><span>Where all <span id="pcount">11,105</span> weights live</span></summary><div>
+          <div class="tbl-wrap"><table><thead><tr><th>Table of numbers</th><th>Shape</th><th class="n">Count</th></tr></thead><tbody id="paramRows"></tbody></table></div>
+          <p class="note">Training a model means changing these numbers. Saving a model means writing them to a file. GPT-3's file holds 175 billion of them.</p>
+        </div></details>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="chapter" id="ch6" data-ch="6">
+      <header class="chh"><span class="cell" data-cell="6">6</span><h2>Training: thousands of tiny nudges</h2></header>
+      <div class="beat" data-scene="land">
+        <p class="prose">To learn, the model needs a score for how wrong it is. Language models use <strong>cross-entropy loss</strong>: <span class="mono">loss = −ln(p)</span>, where <span class="mono">p</span> is the probability it gave the right next token.</p>
+        <div class="group">
+          <div class="fader"><label for="lossP">Probability given to the right token</label><output id="lossPOut" for="lossP">0.50</output><input type="range" id="lossP" min="-3" max="0" step="0.01" value="-0.301"></div>
+          <canvas class="chart short" id="lossCurve" aria-label="Loss equals minus the natural log of p"></canvas>
+          <p class="mono note" id="lossRead"></p>
+        </div>
+      </div>
+      <div class="beat" data-scene="land">
+        <p class="prose">Picture the loss as a landscape. Every setting of the weights is a spot on the ground, and height is the loss. The gradient points uphill, so each step goes the other way: <span class="mono">w ← w − learning rate × gradient</span>. That is <strong>gradient descent</strong>.</p>
+        <div class="group">
+          <div class="group-h"><h4>Gradient descent on a real surface</h4></div>
+          <p class="note">A real neuron with two weights, <span class="mono">w</span> and <span class="mono">b</span>, fitting the 7 dots below. Every spot is one setting, and height is the loss. Click the surface to drop the ball.</p>
+          <div class="row">
+            <button class="btn run" id="landRun" type="button"><svg class="i f" viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z"/></svg>Roll downhill</button>
+            <button class="btn" id="landStep" type="button">One step</button>
+            <button class="btn icon" id="landReset" type="button" aria-label="Reset the ball"><svg class="i" viewBox="0 0 16 16"><path d="M3.2 6.2A5 5 0 1 1 3 9.5"/><path d="M2.8 2.8v3.6h3.6"/></svg></button>
+          </div>
+          <div class="fader"><label for="landLr">Learning rate</label><output id="landLrOut" for="landLr">0.60</output><input type="range" id="landLr" min="0.05" max="3" step="0.05" value="0.6"></div>
+          <div class="row"><span class="note">Experiments:</span><button class="btn sm" id="landBig" type="button">Huge steps (rate 3)</button><button class="btn sm" id="landFlat" type="button">Start on the flat part</button></div>
+          <canvas class="chart short" id="toyChart" aria-label="The seven data points and the neuron's current curve"></canvas>
+          <p class="mono note" id="landNote"></p>
+          <p class="note" id="landResult"></p>
+        </div>
+      </div>
+      <div class="beat" data-scene="net" data-model="learner" data-train="1">
+        <h3>Now train the real model</h3>
+        <p class="prose">Each <strong>step</strong> takes 32 random examples, measures the loss, uses backpropagation to get the gradient for all 11,105 weights, and moves every weight a little downhill. One pass over all 594 examples is an <strong>epoch</strong>. While it trains, the 3D view shows the error flowing <strong>backward</strong> in violet, along the weights that get the biggest nudge in each step, and the lines recolour as the weights change.</p>
+        <div class="group" id="trPanel">
+          <div class="row">
+            <button class="btn run" id="trRun" type="button" style="min-width:176px">Start training<span class="bar"></span></button>
+            <button class="btn" id="trStep" type="button">One step</button>
+            <button class="btn" id="trReset" type="button" title="Always the same random start, so runs can be compared">Reset to step 0</button>
+          </div>
+          <div class="prog" id="trProg" role="progressbar" aria-valuemin="0" aria-valuemax="2000" aria-valuenow="0" aria-label="Training run progress">
+            <div class="prog-track"><i></i></div>
+            <div class="prog-text" id="trProgText">Ready: 2,000 steps</div>
+          </div>
+          <div class="undo" id="trUndo" hidden></div>
+          <div class="summary" id="trSummary" role="status" hidden></div>
+          <dl class="stats">
+            <div><dt>Step</dt><dd id="kStep">0</dd></div>
+            <div><dt title="1 epoch = 594 examples, about 18.6 steps of 32">Epoch</dt><dd id="kEpoch">0.0</dd></div>
+            <div><dt>Training loss</dt><dd id="kTrain">–</dd></div>
+            <div><dt>Held-out loss</dt><dd id="kVal">–<small id="kBest"></small></dd></div>
+          </dl>
+          <div class="legend-row"><span><i></i>error on the 94 training sentences</span><span><i class="dash"></i>error on 10 sentences it never sees</span></div>
+          <canvas class="chart" id="lossChart" aria-label="Loss over training steps for training and held-out sentences"></canvas>
+          <div class="row"><label class="note" for="trProbe">Watching</label><select id="trProbe"></select></div>
+          <div class="bars" id="trProbeBars"></div>
+          <details class="more"><summary>What it writes as it learns</summary><div><div class="samples well" id="trSamples"><div class="note">Start training to see samples.</div></div></div></details>
+        </div>
+        <details class="more"><summary>Settings: run length, early stopping, learning rate, speed</summary><div>
+
+          <div class="seg" id="trBudget" role="radiogroup" aria-label="How many steps this run takes">
+            <button type="button" role="radio" aria-checked="false" data-b="500">500<small>27 epochs</small></button>
+            <button type="button" role="radio" aria-checked="false" data-b="1000">1,000<small>54 epochs</small></button>
+            <button type="button" role="radio" aria-checked="true" data-b="2000">2,000<small>108 epochs</small></button>
+            <button type="button" role="radio" aria-checked="false" data-b="5000">5,000<small>269 epochs</small></button>
+          </div>
+          <label class="check"><input type="checkbox" id="trEarly" checked><span>Stop early when the held-out loss has not improved for 300 steps, and keep the best weights</span></label>
+          <div class="fader"><label for="trLr">Learning rate</label><output id="trLrOut" for="trLr">0.30</output><input type="range" id="trLr" min="0.02" max="2" step="0.02" value="0.3"></div>
+          <div class="row"><span class="note">Speed</span>
+            <div class="seg" id="trSpeed" role="radiogroup" aria-label="Training speed">
+              <button type="button" role="radio" aria-checked="false" data-s="1">Slow</button>
+              <button type="button" role="radio" aria-checked="true" data-s="3">Normal</button>
+              <button type="button" role="radio" aria-checked="false" data-s="10">Fast</button>
+            </div>
+          </div>
+          </div></details>
+        <p class="note">Lower is better. When the dashed line stops falling while the solid one keeps going, the model has started memorising instead of learning, so training stops by itself and keeps its best version.</p>
+      </div>
+      <div class="beat" data-scene="net" data-model="learner">
+        <details class="more" id="oneStep"><summary>The math: one real training step, in numbers</summary><div>
+          <div class="row"><label class="note" for="osEx">Example</label><select id="osEx"></select></div>
+          <div id="osBody" class="beat"></div>
+          <div class="row"><button class="btn sm" id="osApply" type="button">Apply this one step to my model</button><span class="note" id="osWhy"></span></div>
+        </div></details>
+        <details class="more"><summary>The math: backpropagation for the whole network</summary><div>
+          <p>These six lines are the complete gradient calculation in <span class="mono">core.js</span>, the code training your model. <span class="mono">y</span> is the correct token, <span class="mono">⊙</span> multiplies item by item, and <span class="mono">ᵀ</span> reads a weight table the other way round.</p>
+          <div class="well eq">∂L/∂logits = p − onehot(y)<br>∂L/∂W₂ = (∂L/∂logits) · hᵀ &nbsp; ∂L/∂b₂ = ∂L/∂logits<br>∂L/∂h = W₂ᵀ · (∂L/∂logits)<br>∂L/∂z = ∂L/∂h ⊙ (1 − h²)<br>∂L/∂W₁ = (∂L/∂z) · xᵀ &nbsp; ∂L/∂b₁ = ∂L/∂z<br>∂L/∂x = W₁ᵀ · (∂L/∂z) → added to the 3 embedding rows used</div>
+          <p>The first line has a neat meaning. The right token's score is pushed up by <span class="mono">1 − p</span>, and every other token's score is pushed down by its own <span class="mono">p</span>. These gradients were checked against small-step numerical estimates and agree to at least 8 decimal places.</p>
+        </div></details>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="chapter" id="ch7" data-ch="7">
+      <header class="chh"><span class="cell" data-cell="7">7</span><h2>Generating text, and the road to ChatGPT</h2></header>
+      <div class="beat" data-scene="net" data-model="gen" data-gen="ch7">
+        <div class="group">
+          <div class="group-h"><h4>Let it write</h4></div>
+          <div class="seg" id="genWho" role="radiogroup" aria-label="Which model writes">
+            <button type="button" role="radio" aria-checked="true" data-who="ref">Pre-trained copy</button>
+            <button type="button" role="radio" aria-checked="false" data-who="learner">Your model<small id="genWhoStep">step 0</small></button>
+          </div>
+          <input type="text" id="genPrompt" value="the girl gives the" autocomplete="off" spellcheck="false" aria-label="Start of the sentence">
+          <div class="row"><span class="note">Try:</span><button class="btn sm" type="button" data-try="the cow sleeps in the">the cow sleeps in the</button><button class="btn sm" type="button" data-try="the fox">the fox</button><button class="btn sm" type="button" data-try="">(empty)</button></div>
+          <div class="fader"><label for="genTemp">Temperature <span class="note" id="genTempWord">balanced</span></label><output id="genTempOut" for="genTemp">0.80</output><input type="range" id="genTemp" min="0.1" max="2" step="0.05" value="0.8"></div>
+          <div class="row"><button class="btn run" id="genGo" type="button">Write the rest</button><button class="btn" id="genOne" type="button">Add one token</button></div>
+          <p class="note" id="genWarn"></p>
+          <div class="gen-out" id="genOut"></div>
+          <p class="note mono" id="genWindow"></p>
+          <div class="bars" id="genBars"></div>
+          <p class="verdict" id="genNew"></p>
+        </div>
+        <p class="note"><strong>Temperature</strong> divides every score before the softmax. Low values let the top choice dominate. High values flatten the odds. Move the slider and the bars change on the spot.</p>
+      </div>
+      <div class="beat prose" data-scene="net" data-model="gen">
+        <h3>Why our model gets confused</h3>
+        <p>It only ever sees the last 3 tokens. Try "the cow sleeps in the": by the time it reaches "the", "cow" has dropped out of view, so it cannot know the answer is "barn". The amount of text a model can see is its <strong>context window</strong>.</p>
+        <p>Transformers fix this with <strong>attention</strong>. Every token looks back at all earlier tokens, scores how relevant each one is with the same softmax you saw in Chapter 5, and mixes in what matters.</p>
+      </div>
+      <div class="beat" data-scene="hero" data-model="ref">
+        <h3>The same recipe, scaled up</h3>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th></th><th class="n">Your model</th><th class="n">GPT-3 (2020)</th></tr></thead>
+          <tbody>
+            <tr><td>Weights</td><td class="n" id="cmpParams">11,105</td><td class="n">175 billion</td></tr>
+            <tr><td>Vocabulary</td><td class="n" id="cmpVocab">163</td><td class="n">50,257</td></tr>
+            <tr><td>Numbers per token</td><td class="n">10</td><td class="n">12,288</td></tr>
+            <tr><td>Context window</td><td class="n">3 tokens</td><td class="n">2,048 tokens</td></tr>
+            <tr><td>Layers</td><td class="n">1 hidden</td><td class="n">96 transformer</td></tr>
+            <tr><td>Training text</td><td class="n">94 sentences</td><td class="n">300 billion tokens</td></tr>
+          </tbody>
+        </table></div>
+        <p class="note">GPT-3 figures are from OpenAI's paper "Language Models are Few-Shot Learners" (Brown et al., 2020). Newer models such as GPT-4 have not published their sizes.</p>
+        <h3>From next-word guesser to ChatGPT</h3>
+        <ol class="recap">
+          <li><span><strong>Pre-training.</strong> What you did in Chapter 6, on a huge slice of the internet: predict the next token, measure the loss, backpropagate, nudge the weights. Billions of times.</span></li>
+          <li><span><strong>Instruction tuning.</strong> More training on example conversations written by people, so the model answers questions instead of just continuing text.</span></li>
+          <li><span><strong>Learning from human feedback (RLHF).</strong> People rank several answers. A second model learns to predict those rankings, and the chatbot is tuned to give answers that score well. OpenAI described this in its 2022 InstructGPT paper.</span></li>
+        </ol>
+      </div>
+      <div class="beat prose" data-scene="hero" data-model="ref">
+        <h3>What you now know</h3>
+        <ol class="recap">
+          <li><span>A language model guesses the next token. Writing is that guess, repeated.</span></li>
+          <li><span>A tokenizer (BPE) turns text into token IDs using merges learned from data.</span></li>
+          <li><span>Each ID becomes an embedding, a learned row of numbers that captures how the token is used.</span></li>
+          <li><span>Neurons multiply by weights, add a bias, and squash. Layers of them make a network.</span></li>
+          <li><span>Softmax turns scores into probabilities. Cross-entropy loss measures how wrong they were.</span></li>
+          <li><span>Backpropagation finds every weight's gradient, and gradient descent nudges each one downhill.</span></li>
+          <li><span>ChatGPT is this recipe with transformers, attention, vast data and human feedback.</span></li>
+        </ol>
+      </div>
+      <footer class="end">
+        <p>Everything here was computed in your browser by a few hundred lines of plain JavaScript: the tokenizer, the network, backpropagation and gradient descent. No AI library was used. The dataset is the 104 sentences below; the 10 marked "held out" are never trained on.</p>
+        <div class="dataset well" id="dataset"></div>
+        <p class="made">Made by <a href="https://x.com/adhyan1227" target="_blank" rel="noopener">@adhyan1227</a>. If this helped, follow me on X. I need more tokens, please.</p>
+        
+      </footer>
+    </section>
+  </main>
+</div>
+<div class="sr" id="srLive" role="status"></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script type="module" src="app.js"></script>
+
+</body>
+</html>
