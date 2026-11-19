@@ -67,9 +67,12 @@ if [ "$SKIP_VENV" = 0 ] && [ ! -x "$PY" ]; then
   elif command -v python3.10 >/dev/null 2>&1; then python3.10 -m venv "$LS_DIR/.venv"
   else echo "   [warn] python3.10 not found, using $(python3 --version)"; python3 -m venv "$LS_DIR/.venv"; fi
 fi
-PIP=("$PY" -m pip)
-if command -v uv >/dev/null 2>&1; then PIP=(uv pip --python "$PY"); fi
-"$PY" -m pip --version >/dev/null 2>&1 || "$PY" -m ensurepip -q || true
+# uv wants the target after the subcommand: `uv pip install --python PY ...`
+pip_install() {
+  if command -v uv >/dev/null 2>&1; then uv pip install --python "$PY" "$@"
+  else "$PY" -m pip install "$@"; fi
+}
+command -v uv >/dev/null 2>&1 || "$PY" -m pip --version >/dev/null 2>&1 || "$PY" -m ensurepip >/dev/null || true
 
 CAP=0
 if [ "$DEVICE" = cuda ]; then
@@ -96,15 +99,22 @@ if [ "$SKIP_VENV" = 0 ] && [ ! -f "$STAMP" ]; then
     echo "eva-decord==0.6.1" >> "$REQ"
     echo "onnxruntime==1.21.0" >> "$REQ"
   fi
-  "${PIP[@]}" install -q --upgrade pip wheel setuptools || true
+  pip_install -q --upgrade pip wheel setuptools || true
   if [ -f "$LS_DIR/.venv/overrides.ultron.txt" ] && command -v uv >/dev/null 2>&1; then
     uv pip install --python "$PY" -r "$REQ" --overrides "$LS_DIR/.venv/overrides.ultron.txt"
   elif [ -f "$LS_DIR/.venv/overrides.ultron.txt" ]; then
     "$PY" -m pip install -r "$REQ" -c "$LS_DIR/.venv/overrides.ultron.txt"
   else
-    "${PIP[@]}" install -r "$REQ"
+    pip_install -r "$REQ"
   fi
   touch "$STAMP"
+fi
+# scipy 1.15.x wheels for py3.10 (pulled in by scikit-image/librosa) ship a _spropack dylib that newer
+# macOS dyld refuses ("__DATA/__thread_bss has a zero-fill section type, but offset field is not zero"),
+# which breaks `import diffusers`. 1.14.1 loads; checked outside the stamp so existing venvs get fixed too.
+if [ "$SKIP_VENV" = 0 ] && [ "$(uname -s)" = Darwin ] && ! "$PY" -c "import scipy.sparse.linalg" >/dev/null 2>&1; then
+  echo "   scipy $("$PY" -c 'import scipy;print(scipy.__version__)' 2>/dev/null) fails to load on this macOS; pinning scipy==1.14.1"
+  pip_install "scipy==1.14.1"
 fi
 "$PY" - <<'EOF'
 import torch
@@ -123,6 +133,9 @@ s = sum((f.size or 0) for f in info.siblings if f.rfilename == sys.argv[2])
 print(f"{s/1e9:.2f} GB")
 EOF
 }
+vae_cached() {  # true if diffusers can load the VAE offline
+  "$PY" -c "from huggingface_hub import try_to_load_from_cache as t; import sys; sys.exit(0 if isinstance(t('stabilityai/sd-vae-ft-mse','diffusion_pytorch_model.safetensors'), str) else 1)" 2>/dev/null
+}
 need=()
 IFS=',' read -ra VLIST <<< "$VERSIONS"
 for v in "${VLIST[@]}"; do
@@ -134,7 +147,8 @@ done
 if [ ${#need[@]} -gt 0 ]; then
   echo "   weights to download:"
   for n in "${need[@]}"; do IFS='|' read -r v f dst <<< "$n"; echo "     ByteDance/LatentSync-$v  $f  ($(size_of "ByteDance/LatentSync-$v" "$f"))  -> $dst/$f"; done
-  echo "     stabilityai/sd-vae-ft-mse (~0.33 GB) -> Hugging Face cache"
+  if vae_cached; then echo "     stabilityai/sd-vae-ft-mse already in the Hugging Face cache"
+  else echo "     stabilityai/sd-vae-ft-mse (~0.33 GB) -> Hugging Face cache"; fi
   if [ "$YES" = 1 ]; then
     for n in "${need[@]}"; do
       IFS='|' read -r v f dst <<< "$n"
