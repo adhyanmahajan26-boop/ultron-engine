@@ -57,7 +57,10 @@
       "cloud": {"adapter_role": "asr.whisper"}
     },
     "lipsync_latentsync": {
-      "title": "LatentSync 1.5 lip-sync (optional; the LTX route does not need it)", "role": "lipsync",
+      "title": "LatentSync 1.6 / 1.5 lip-sync (official PyTorch on CUDA or Apple MPS, or the MLX port)", "role": "lipsync",
+      "official": {"platform": "nvidia-cuda | apple-silicon-mps", "setup": "scripts/setup_latentsync_official.sh --versions 1.6 [--yes-download]",
+                   "hf": [{"repo": "ByteDance/LatentSync-1.6"}, {"repo": "ByteDance/LatentSync-1.5", "optional": true}],
+                   "upstream": "https://github.com/bytedance/LatentSync@a229c3948406bc2cf6eaf4873e662e70c6a04746", "docs": "docs/LIPSYNC.md"},
       "local": {"platform": "apple-silicon", "manual": true, "hf": [{"repo": "ByteDance/LatentSync-1.5"}], "size_gb_approx": 5,
                 "notes": "We run an Apple MLX port that is NOT published in this repo. Upstream weights are downloaded for you; the MLX port must be placed at $ULTRON_AVATAR/latentsync-mlx (see docs/MODELS.md).", "license": "see upstream"},
       "cloud": {"adapter_role": "lipsync.latentsync"}

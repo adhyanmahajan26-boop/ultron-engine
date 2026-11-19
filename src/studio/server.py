@@ -659,15 +659,31 @@ async def lipsync(
     audio_path: str,
     video_path: str | None = None,
     steps: int | None = None,
+    version: str | None = None,
+    guidance: float | None = None,
+    ref_mode: str | None = None,
     wait_seconds: float = DEFAULT_WAIT,
 ) -> dict:
-    """Make the person in real footage speak new audio (LatentSync 1.5, 256px, ~2-3 min).
-    video_path defaults to the user's saved talking-head clip and must be at least as
-    long as the audio. Output length follows the audio."""
+    """Make the person in real footage speak new audio with LatentSync.
+    Backend follows ULTRON_LIPSYNC_BACKEND (auto: official PyTorch on NVIDIA, official on Apple MPS once
+    scripts/setup_latentsync_official.sh has run, else the MLX port). version "1.6" (512px, default for
+    official) or "1.5" (256px). guidance: upstream 1.5, long takes often want 2-3. ref_mode: same (upstream),
+    window (use when the source mouth is already moving), fixed, shift - see docs/LIPSYNC.md.
+    video_path defaults to the user's saved talking-head clip and must be at least as long as the audio."""
     audio = _require_file(audio_path, "audio")
     video = _require_file(video_path or DEFAULT_FOOTAGE, "footage")
-    p = {"audio": str(audio), "video": str(video), "steps": steps}
+    p = {"audio": str(audio), "video": str(video), "steps": steps, "version": version, "guidance": guidance,
+         "ref_mode": ref_mode}
     return await _start("lipsync", audio.name, p, wait_seconds)
+
+
+def _lipsync_backends():
+    """src/lipsync is standard-library only at import time; the repo root is two levels above runtime/studio."""
+    src = Path(os.environ.get("ULTRON_ENGINE_DIR", STUDIO.parents[1])) / "src"
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    from lipsync import backends  # noqa: WPS433
+    return backends
 
 
 @worker("lipsync")
@@ -675,11 +691,31 @@ async def _lipsync(p, job):
     audio = Path(p["audio"])
     out = _out_path("video", "lipsync-" + audio.stem, "mp4")
     raw = out.with_name(out.stem + ".raw.mp4")
-    cmd = [str(AVATAR_PY), "scripts/lipsync.py", "--video", p["video"], "--audio", str(audio),
-           "--out", str(raw), "--resolution", "256"]
-    if p["steps"]:
-        cmd += ["--steps", str(p["steps"])]
-    await _run(cmd, job, cwd=AVATAR, env={"HF_HUB_DISABLE_XET": "1"})
+    try:
+        B = _lipsync_backends()
+        lj = B.Job(video=p["video"], audio=str(audio), out=str(raw), steps=p.get("steps") or 20,
+                   version=p.get("version") or ("1.6" if B.config.default_backend() == "official" else "1.5"),
+                   guidance=p.get("guidance"), ref_mode=p.get("ref_mode") or "same")
+        backend = lj.resolved_backend()
+    except Exception:  # noqa: BLE001 - src/lipsync missing: old behaviour
+        B, backend = None, "mlx-legacy"
+    if B is not None and backend == "official":
+        cmd, env, cwd = B.command(lj)
+        env = {**env, "PYTHONPATH": str(Path(B.__file__).resolve().parents[1])}
+        await _run(cmd, job, cwd=Path(cwd) if cwd else None, env=env)
+    else:
+        cmd = [str(AVATAR_PY), "scripts/lipsync.py", "--video", p["video"], "--audio", str(audio),
+               "--out", str(raw)]
+        cmd += ["--version", p["version"]] if p.get("version") else ["--resolution", "256"]
+        if p.get("guidance"):
+            cmd += ["--guidance", str(p["guidance"])]
+        if p["steps"]:
+            cmd += ["--steps", str(p["steps"])]
+        env = {"HF_HUB_DISABLE_XET": "1"}
+        if p.get("ref_mode") and p["ref_mode"] != "same":
+            env["LS_REF_MODE"] = "shift" if p["ref_mode"] == "window" else p["ref_mode"]
+            env.update({"LS_REF_SHIFT": "16"} if p["ref_mode"] in ("window", "shift") else {"LS_REF_IDX": "0"})
+        await _run(cmd, job, cwd=AVATAR, env=env)
     # LatentSync muxes back its 16 kHz Whisper resample, which sounds muffled.
     # Re-attach the original full-rate audio.
     job["progress"] = "re-attaching original audio"
