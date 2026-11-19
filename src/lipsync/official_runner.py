@@ -271,8 +271,9 @@ def make_classes():
             out = []
             for i, face in enumerate(faces):
                 x1, y1, x2, y2 = boxes[i]
+                # antialiased bicubic has no MPS kernel: run it on the CPU explicitly (same op the fallback ran)
                 face = torchvision.transforms.functional.resize(
-                    face.float(), size=(int(y2 - y1), int(x2 - x1)),
+                    face.float().cpu(), size=(int(y2 - y1), int(x2 - x1)),
                     interpolation=transforms.InterpolationMode.BICUBIC, antialias=True).to(rdev)
                 out.append(self.image_processor.restorer.restore_img(video_frames[i], face, affine_matrices[i]))
             return np.stack(out, axis=0)
