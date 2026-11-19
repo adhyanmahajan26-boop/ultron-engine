@@ -8,7 +8,7 @@
 #   ultron-linux url                 the connector URL to paste into Claude (Settings > Connectors > Add custom)
 #   ultron-linux logs [cuda|mcp|tunnel|worker-<model>]
 #   ultron-linux doctor              check environments, CUDA in each, weights, endpoints
-#   ultron-linux selftest [image|video|music|speech|asr|all]   small real generations (needs the GPU)
+#   ultron-linux selftest [voice|image|video|video10|music|speech|asr|fish|vc|all]   small real runs (needs the GPU)
 #   ultron-linux warm MODEL          load a model now (ltx-2.5, qwen-image-2.1, ace-step-1.5-xl-turbo, qwen3-tts-1.7b)
 #   ultron-linux sync-outputs        copy outputs/ to $ULTRON_OUTPUTS_REMOTE (rclone) before the box is deleted
 #   ultron-linux update              git pull + setup.sh (keeps weights)
@@ -147,7 +147,7 @@ for m in json.load(sys.stdin)['data']:
 }
 
 cmd_selftest() {
-  local what="${1:-all}" out="$ULTRON_HOME/outputs/selftest"; mkdir -p "$out"
+  local what="${1:-voice}" out="$ULTRON_HOME/outputs/selftest"; mkdir -p "$out"
   "$PYA" "$LINUX/tests/selftest.py" --what "$what" --out "$out" --port "$CPORT"
 }
 

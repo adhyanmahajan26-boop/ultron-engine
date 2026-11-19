@@ -1,5 +1,5 @@
 """Small real generations against cuda-serve, to prove a fresh GPU box works end to end.
-    ultron-linux selftest [image|video|video10|music|speech|asr|all]
+    ultron-linux selftest [voice|image|video|video10|music|speech|asr|all]   (voice = speech + asr + fish + vc)
 Writes files to $ULTRON_HOME/outputs/selftest and prints time per step. Standard library only.
 `video10` is the 10-second one-take check: 241 frames at 24 fps, 1024x576, from a still made by the image step.
 """
@@ -103,11 +103,41 @@ def asr():
     return json.loads(line[0][9:])["text"]
 
 
+def fish():
+    ref = HOME / "avatar/inputs/my_voice_ref.wav"
+    if not ref.exists():
+        return "skipped (upload avatar/inputs/my_voice_ref.wav first)"
+    out = OUT / "fish.wav"
+    txt = HOME / "avatar/inputs/my_voice_ref.txt"
+    cmd = [str(HOME / "venvs/avatar/bin/python"), str(HOME / "avatar/scripts/voice_clone.py"), "--ref-audio", str(ref),
+           "--text", "Testing my cloned voice on the rented GPU.", "--out", str(out)]
+    if txt.exists():
+        cmd += ["--ref-text", txt.read_text().strip()]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode or not out.exists():
+        raise RuntimeError(r.stderr[-400:])
+    return str(out)
+
+
+def vc():
+    ref, src = HOME / "avatar/inputs/my_voice_ref.wav", OUT / "speech.wav"
+    if not (ref.exists() and src.exists()):
+        return "skipped (needs my_voice_ref.wav and the speech step)"
+    r = subprocess.run([str(HOME / "venvs/avatar/bin/python"), str(HOME / "avatar/scripts/voiceconvert.py"), str(src), str(ref),
+                        str(OUT / "vc.wav")], capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError(r.stderr[-400:])
+    return r.stdout.strip().splitlines()[-1]
+
+
 what = a.what
 plan = {"image": [("image", image)], "video": [("video", video())], "video10": [("video10", video(241, "video10s.mp4"))],
-        "music": [("music", music)], "speech": [("speech", speech)], "asr": [("asr", asr)]}
+        "music": [("music", music)], "speech": [("speech", speech)], "asr": [("asr", asr)], "fish": [("fish", fish)],
+        "vc": [("vc", vc)]}
 if what == "all":
-    order = ["image", "video", "music", "speech", "asr"]
+    order = ["image", "video", "music", "speech", "asr", "fish", "vc"]
+elif what == "voice":
+    order = ["speech", "asr", "fish", "vc"]
 else:
     order = what.split(",")
 for w in order:

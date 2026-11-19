@@ -12,6 +12,14 @@ On a fresh Ubuntu 22.04/24.04 box with the NVIDIA driver (any "PyTorch/CUDA" ima
 curl -fsSL https://raw.githubusercontent.com/adhyanmahajan26-boop/ultron-engine/main/linux/bootstrap.sh | HF_TOKEN=hf_xxx bash
 ```
 
+**Profiles.** The default profile is `voice`: lip-sync and audio only (LatentSync 1.6, Fish S2 Pro, Chatterbox, Whisper,
+Qwen3-TTS), about 30 GB of weights. `--profile full` adds LTX-2.5 video, Qwen-Image 2.1, ACE-Step music and HyperFrames
+(about 210 GB on the first day). Re-running with `--profile full` later only adds what is missing:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/adhyanmahajan26-boop/ultron-engine/main/linux/bootstrap.sh | HF_TOKEN=hf_xxx bash -s -- --profile full
+```
+
 It clones this repo into `$ULTRON_HOME/engine`, then `linux/setup.sh`:
 
 1. installs system packages (ffmpeg, sox, fonts incl. Devanagari, headless-Chrome libs), `uv`, Node 22, `cloudflared`;
@@ -29,8 +37,8 @@ It clones this repo into `$ULTRON_HOME/engine`, then `linux/setup.sh`:
 Paste that URL into Claude (Settings > Connectors > Add custom connector). The secret in the path is the password:
 keep the URL private.
 
-`HF_TOKEN`: a Hugging Face read token, after accepting the licences of `Lightricks/LTX-2.5` (gated),
-`Qwen/Qwen-Image-2.1` and `fishaudio/s2-pro` on huggingface.co.
+`HF_TOKEN`: a Hugging Face read token, after accepting the licence of `fishaudio/s2-pro` (and, for the full profile,
+`Lightricks/LTX-2.5` (gated) and `Qwen/Qwen-Image-2.1`) on huggingface.co.
 
 Options: `--components ltx,asr,latentsync` (install a subset), `--no-start`, `--dry-run` (print the plan),
 `--warm ltx-2.5` (load a model right after start). All settings: [linux/config.example.env](../linux/config.example.env)
@@ -55,7 +63,8 @@ port 8765 and set `ULTRON_TUNNEL=runpod`.
 ```
 ultron-linux up | down | restart | status | url | doctor | logs [cuda|mcp|tunnel|worker-<model>]
 ultron-linux warm ltx-2.5            # load a model now
-ultron-linux selftest all            # real small generations: image, 4 s video, music, speech, ASR
+ultron-linux selftest                # voice profile: Qwen3-TTS speech, Whisper ASR, Fish clone, Chatterbox conversion
+ultron-linux selftest all            # + image, 4 s video, music (full profile)
 ultron-linux selftest video10        # the 10-second one-take check (241 frames, 1024x576)
 ultron-linux sync-outputs | update
 ```

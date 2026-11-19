@@ -3,8 +3,9 @@
 # model server and the Claude connector, and prints the connector URL. Safe to re-run: finished steps are skipped,
 # so on a box with a persistent volume the daily start takes a minute instead of an hour.
 #
-#   HF_TOKEN=hf_xxx bash linux/setup.sh                 # everything (default components)
-#   bash linux/setup.sh --components ltx,qwen_image,asr  # only some
+#   HF_TOKEN=hf_xxx bash linux/setup.sh                 # profile "voice" (default): lip-sync + voice + ASR, ~40 GB
+#   HF_TOKEN=hf_xxx bash linux/setup.sh --profile full  # + LTX-2.5 video, Qwen-Image, ACE-Step music, HyperFrames
+#   bash linux/setup.sh --components latentsync,asr      # exactly these components
 #   bash linux/setup.sh --no-start                       # install only
 #   bash linux/setup.sh --dry-run                        # print the plan, change nothing
 #
@@ -15,17 +16,20 @@ set -Eeuo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LINUX="$ENGINE/linux"
 ALL_COMPONENTS="ltx,qwen_image,qwen_image_turbo,music,fish,chatterbox,qwen3tts,asr,latentsync,hyperframes"
-DEFAULT_COMPONENTS="ltx,qwen_image,music,fish,chatterbox,qwen3tts,asr,latentsync,hyperframes"
+# profiles: voice (default, day one: lip-sync + audio, ~40 GB of weights) | full (adds video, images, music, ~210 GB)
+PROFILE_VOICE="latentsync,fish,chatterbox,asr,qwen3tts"
+PROFILE_FULL="ltx,qwen_image,music,fish,chatterbox,qwen3tts,asr,latentsync,hyperframes"
 
 # ── settings ────────────────────────────────────────────────────────────────
-DRY=0; START=1; COMPONENTS=""; WARM=""
+DRY=0; START=1; COMPONENTS=""; WARM=""; PROFILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --components) COMPONENTS="$2"; shift 2;;
+    --profile) PROFILE="$2"; shift 2;;
     --dry-run) DRY=1; shift;;
     --no-start) START=0; shift;;
     --warm) WARM="$2"; shift 2;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0;;
     *) echo "unknown option $1"; exit 2;;
   esac
 done
@@ -37,7 +41,9 @@ fi
 export ULTRON_HOME
 mkdir -p "$ULTRON_HOME"/{logs,state,secrets,run,venvs,inputs,outputs,cache}
 [ -f "$ULTRON_HOME/config.env" ] && set -a && . "$ULTRON_HOME/config.env" && set +a
-COMPONENTS="${COMPONENTS:-${ULTRON_COMPONENTS:-$DEFAULT_COMPONENTS}}"
+PROFILE="${PROFILE:-${ULTRON_PROFILE:-voice}}"
+case "$PROFILE" in voice) PCOMP="$PROFILE_VOICE";; full) PCOMP="$PROFILE_FULL";; *) echo "unknown profile '$PROFILE' (voice|full)"; exit 2;; esac
+COMPONENTS="${COMPONENTS:-${ULTRON_COMPONENTS:-$PCOMP}}"
 for c in ${COMPONENTS//,/ }; do [[ ",$ALL_COMPONENTS," == *",$c,"* ]] || { echo "unknown component '$c' (known: $ALL_COMPONENTS)"; exit 2; }; done
 LOG="$ULTRON_HOME/logs/setup-$(date +%Y%m%d-%H%M%S).log"
 export HF_HOME="${HF_HOME:-$ULTRON_HOME/hf}"
@@ -62,7 +68,7 @@ step_done() { [ $DRY = 1 ] || echo "$2" > "$ULTRON_HOME/state/$1"; }
 trap 'echo; echo "setup failed at line $LINENO (log: $LOG)"; exit 1' ERR
 [ $DRY = 1 ] || exec > >(tee -a "$LOG") 2>&1
 
-say "Ultron Engine Linux setup   home=$ULTRON_HOME   components=$COMPONENTS"
+say "Ultron Engine Linux setup   home=$ULTRON_HOME   profile=$PROFILE   components=$COMPONENTS"
 
 # ── 0. machine checks ───────────────────────────────────────────────────────
 command -v nvidia-smi >/dev/null || die "nvidia-smi not found: this needs an NVIDIA GPU with the driver installed (rent a CUDA image)."
@@ -81,6 +87,7 @@ note "approximate disk needed for these components on a fresh box: ${NEED} GB (l
 [ "$VRAM_MB" -lt 23000 ] && warn "GPU has $((VRAM_MB/1024)) GB VRAM; LTX-2.5 and Fish S2 Pro need about 24 GB+ (they will offload and be slow)"
 [ "$RAM_GB" -lt 60 ] && has ltx && warn "LTX-2.5 on a 32 GB GPU streams weights from system RAM; ${RAM_GB} GB RAM may not be enough (64 GB+ recommended)"
 if [ -z "${HF_TOKEN:-}" ] && [ ! -f "$HF_HOME/token" ]; then
+  has fish && warn "HF_TOKEN not set: if fishaudio/s2-pro asks you to accept its licence on huggingface.co, the download needs a token"
   has ltx && warn "HF_TOKEN not set: Lightricks/LTX-2.5-Diffusers is gated (accept the licence on huggingface.co, then set HF_TOKEN)"
 fi
 [ -n "${HF_TOKEN:-}" ] && export HF_TOKEN
