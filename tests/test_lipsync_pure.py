@@ -119,6 +119,23 @@ def test_nearest5d_as_2d_matches_3d():
     assert official_runner.nearest5d_as_2d(F.interpolate, x, scale_factor=[1, 2, 2], mode="trilinear") is None
 
 
+def test_single_instance_lock():
+    import subprocess
+    from lipsync import official_runner
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["ULTRON_LOCK_DIR"] = d
+        try:
+            official_runner.single_instance("t")
+            code = ("import sys; sys.path.insert(0, %r); from lipsync import official_runner as o; o.single_instance('t')"
+                    % str(Path(__file__).resolve().parents[1] / "src"))
+            r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=os.environ)
+            assert r.returncode != 0 and "another LatentSync run" in r.stderr, r.stderr
+        finally:
+            official_runner._LOCK_FH.close()
+            official_runner._LOCK_FH = None
+            del os.environ["ULTRON_LOCK_DIR"]
+
+
 if __name__ == "__main__":
     for k, v in list(globals().items()):
         if k.startswith("test_"):

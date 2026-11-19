@@ -431,6 +431,36 @@ def load_unet(config_model: dict, ckpt: Path):
     return unet, rep
 
 
+_LOCK_FH = None
+
+
+def single_instance(name: str = "latentsync"):
+    """Refuse to start while another LatentSync run holds the lock (one heavy job at a time).
+    The OS drops the lock when the process dies, so a crash never leaves it stuck."""
+    global _LOCK_FH
+    try:
+        import fcntl
+    except ImportError:  # Windows: no flock, rely on heavy_guard
+        return None
+    d = Path(os.environ.get("ULTRON_LOCK_DIR") or (config.home() / ".locks"))
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{name}.lock"
+    fh = open(path, "a+")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        fh.seek(0)
+        holder = fh.read().strip() or "?"
+        fh.close()
+        raise SystemExit(f"another LatentSync run is active ({holder}); one heavy job at a time. Lock: {path}")
+    fh.seek(0)
+    fh.truncate()
+    fh.write(f"pid {os.getpid()} since {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    fh.flush()
+    _LOCK_FH = fh
+    return path
+
+
 def run(args) -> dict:
     t_start = time.time()
     video = Path(args.video).expanduser().resolve()
@@ -444,6 +474,7 @@ def run(args) -> dict:
     for p, what in ((video, "video"), (audio, "audio"), (ckpt, f"LatentSync {args.version} UNet"), (whisper, "whisper tiny.pt")):
         if not p.exists():
             raise SystemExit(f"{what} not found: {p}")
+    single_instance()
     rev = import_upstream(ls_dir)
 
     import numpy as np
