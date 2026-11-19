@@ -173,6 +173,22 @@ def test_mouthblend_keeps_outside_and_fixes_pink():
     assert red_out < red_gen                                               # pink pulled toward source colour
 
 
+def test_mouthblend_covers_wider_source_mouth():
+    try:
+        import cv2  # noqa: F401
+    except ImportError:
+        return
+    from lipsync import mouthblend
+    ang = np.linspace(0, 2 * np.pi, 20, endpoint=False)
+    small, wide = np.zeros((106, 2), np.float32), np.zeros((106, 2), np.float32)
+    small[52:72] = np.stack([100 + 25 * np.cos(ang), 100 + 6 * np.sin(ang)], 1)
+    wide[52:72] = np.stack([100 + 30 * np.cos(ang), 100 + 22 * np.sin(ang)], 1)
+    m = mouthblend.mouth_mask((200, 200, 3), small, wide, margin=0.12, feather=0.10)
+    inside = np.zeros((200, 200), np.uint8)
+    cv2.fillConvexPoly(inside, cv2.convexHull(wide[52:72].astype(np.int32)), 1)
+    assert m[inside > 0].min() > 0.97          # the whole source mouth is replaced, no ghost
+
+
 if __name__ == "__main__":
     for k, v in list(globals().items()):
         if k.startswith("test_"):

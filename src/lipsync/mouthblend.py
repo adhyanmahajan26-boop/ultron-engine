@@ -74,9 +74,11 @@ def mouth_mask(shape, pts_a, pts_b, margin: float, feather: float) -> np.ndarray
     width = float(np.ptp(pts[:, 0])) or 1.0
     m = np.zeros((h, w), np.uint8)
     cv2.fillConvexPoly(m, cv2.convexHull(pts.astype(np.int32)), 255)
-    grow = max(1, int(round(margin * width)))
-    m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1)))
     sigma = max(0.5, feather * width)
+    # grow past the hulls by 2 sigma as well, so the feather never lets the source mouth show through
+    # (a wider-open source mouth used to leave a faint second mouth at the mask edge)
+    grow = max(1, int(round(margin * width + 2 * sigma)))
+    m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1)))
     m = cv2.GaussianBlur(m.astype(np.float32) / 255.0, (0, 0), sigma)
     return np.clip(m, 0.0, 1.0)
 
