@@ -108,6 +108,11 @@ def render(cfg):
                     shutil.copy(f, dst)
                 dst.chmod(f.stat().st_mode)
                 n += 1
+    if platform.system() == "Linux":  # Linux/CUDA box (linux/setup.sh): Linux versions of Mac-only tools win
+        for f in (REPO / "linux" / "tools").glob("*"):
+            dst = out / "tools" / f.name
+            shutil.copy(f, dst)
+            dst.chmod(f.stat().st_mode)
     Path(p["ULTRON_ROOT"]).mkdir(parents=True, exist_ok=True)
     for d in ("logs", "stills", "shots", "audio", "review"):
         (Path(p["ULTRON_ROOT"]) / d).mkdir(exist_ok=True)
@@ -202,6 +207,9 @@ def cmd_setup(a):
     h = hardware()
     print("\n=== Ultron Engine setup ===")
     print(f"Detected: {h['os']} {h['machine']}, RAM {h['ram_gb']} GB, NVIDIA GPU: {h['nvidia'] or 'none'}")
+    if h["os"] == "Linux" and h["nvidia"]:
+        print("NOTE: this is a Linux NVIDIA machine. Use the CUDA setup instead of this wizard:\n"
+              "      bash linux/setup.sh     (installs everything, downloads weights, starts the connector; docs/LINUX.md)")
     if not h["apple_silicon"]:
         print("NOTE: the local models in this engine are MLX builds and run on Apple Silicon only.\n"
               "      On this machine 'local' would not work for them; 'cloud' (or a Mac for the local part) is recommended.")

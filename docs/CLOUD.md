@@ -1,5 +1,8 @@
 # Cloud GPU setup (experimental)
 
+> For a whole rented Linux GPU box running the full studio (models + connector), use [LINUX.md](LINUX.md) instead.
+> This page is the per-component remote-endpoint protocol for the Mac `mixed` mode.
+
 `python3 ultron.py setup` lets each component run `local`, `cloud` or `skip` (mode `mixed` = choose per component). For cloud components you give an **endpoint URL** and the **name** of the environment variable that holds the API key. The key itself is never stored or committed.
 
 ## Protocol (what `cloud/backends.py` speaks)

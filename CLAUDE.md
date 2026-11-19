@@ -16,6 +16,10 @@ This is **Ultron Engine**, a local AI video studio (images, video, music, voice,
 4. Offer to install the skills into `~/.claude/skills` (`--install-skills`); say they will not overwrite existing skills.
 5. Finish with `python3 ultron.py doctor` and point the user to `docs/QUICKSTART.md`.
 
+## On a Linux NVIDIA box
+Do not run the Mac onboarding there. `bash linux/setup.sh` (see docs/LINUX.md) installs the CUDA stack, downloads only the
+components in `ULTRON_COMPONENTS` and starts the connector; `linux/ultron-linux doctor` checks it.
+
 ## Rules that protect the machine (learned the hard way, see docs/MEMORY_AND_QUEUE.md)
 - **One heavy job at a time** (LTX, Qwen-edit, LatentSync, HyperFrames render, studio models). Run `runtime/tools/heavy_guard.sh &&` before each heavy job. Starting several at once crashed the Mac.
 - Never download models, audio or video the user has not approved. Never pull copyrighted audio from the internet.

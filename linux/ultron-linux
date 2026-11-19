@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# Control the Ultron Engine services on a Linux GPU box (after linux/setup.sh).
+#
+#   ultron-linux up [--warm MODEL]   start cuda-serve (:11234), the studio connector (:8765) and the HTTPS tunnel
+#   ultron-linux down                stop all three
+#   ultron-linux restart
+#   ultron-linux status              what runs, GPU, loaded model
+#   ultron-linux url                 the connector URL to paste into Claude (Settings > Connectors > Add custom)
+#   ultron-linux logs [cuda|mcp|tunnel|worker-<model>]
+#   ultron-linux doctor              check environments, CUDA in each, weights, endpoints
+#   ultron-linux selftest [image|video|music|speech|asr|all]   small real generations (needs the GPU)
+#   ultron-linux warm MODEL          load a model now (ltx-2.5, qwen-image-2.1, ace-step-1.5-xl-turbo, qwen3-tts-1.7b)
+#   ultron-linux sync-outputs        copy outputs/ to $ULTRON_OUTPUTS_REMOTE (rclone) before the box is deleted
+#   ultron-linux update              git pull + setup.sh (keeps weights)
+#
+# Tunnel (ULTRON_TUNNEL in $ULTRON_HOME/config.env):
+#   cloudflare (default)  free quick tunnel, new https://*.trycloudflare.com address each start
+#   cloudflare-named      fixed address: set CLOUDFLARE_TUNNEL_TOKEN and ULTRON_PUBLIC_URL (your hostname)
+#   runpod                https://$RUNPOD_POD_ID-8765.proxy.runpod.net (expose port 8765 on the pod)
+#   none                  bind 0.0.0.0:8765 and use ULTRON_PUBLIC_URL (put your own TLS proxy in front)
+set -euo pipefail
+LINUX="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+ENGINE="$(dirname "$LINUX")"
+if [ -z "${ULTRON_HOME:-}" ]; then
+  if [ -f /workspace/ultron/ultron-linux.env ]; then ULTRON_HOME=/workspace/ultron; else ULTRON_HOME="$HOME/ultron-work"; fi
+fi
+[ -f "$ULTRON_HOME/ultron-linux.env" ] || { echo "run linux/setup.sh first ($ULTRON_HOME/ultron-linux.env missing)"; exit 1; }
+. "$ULTRON_HOME/ultron-linux.env"
+[ -f "$ULTRON_HOME/config.env" ] && set -a && . "$ULTRON_HOME/config.env" && set +a
+RUN="$ULTRON_HOME/run"; LOGS="$ULTRON_HOME/logs"; mkdir -p "$RUN" "$LOGS"
+PYA="$ULTRON_HOME/venvs/avatar/bin/python"
+CPORT="${CUDA_SERVE_PORT:-11234}"; MPORT="${ULTRON_MCP_PORT:-8765}"
+TUNNEL="${ULTRON_TUNNEL:-cloudflare}"
+ULTRON_MCP_TOKEN="$(cat "$ULTRON_HOME/secrets/mcp_token")"; export ULTRON_MCP_TOKEN
+
+alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
+start() {  # start NAME LOG CMD...
+  local name=$1 log=$2; shift 2
+  if alive "$name"; then echo "  $name already running (pid $(cat "$RUN/$name.pid"))"; return; fi
+  nohup setsid "$@" >>"$log" 2>&1 < /dev/null &
+  echo $! > "$RUN/$name.pid"
+  echo "  started $name (pid $!) -> $log"
+}
+stop() {
+  if alive "$1"; then
+    local pid; pid=$(cat "$RUN/$1.pid")
+    kill -TERM -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    for _ in $(seq 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+    kill -KILL -- "-$pid" 2>/dev/null || true
+    echo "  stopped $1"
+  fi
+  rm -f "$RUN/$1.pid"
+}
+wait_http() {  # wait_http URL SECONDS
+  for _ in $(seq "$2"); do curl -sf -m 2 "$1" >/dev/null 2>&1 && return 0; sleep 1; done; return 1
+}
+
+public_url() {
+  case "$TUNNEL" in
+    cloudflare) grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOGS/tunnel.log" 2>/dev/null | tail -1;;
+    runpod) echo "https://${RUNPOD_POD_ID:?RUNPOD_POD_ID not set}-$MPORT.proxy.runpod.net";;
+    *) echo "${ULTRON_PUBLIC_URL:?set ULTRON_PUBLIC_URL in $ULTRON_HOME/config.env}";;
+  esac
+}
+
+cmd_up() {
+  local warm=""; [ "${1:-}" = "--warm" ] && warm="${2:-}"
+  echo "starting services (home $ULTRON_HOME)"
+  start cuda "$LOGS/cuda-serve.log" "$PYA" "$LINUX/cuda_serve/server.py"
+  wait_http "http://127.0.0.1:$CPORT/health" 60 || { echo "cuda-serve did not come up: tail $LOGS/cuda-serve.log"; exit 1; }
+  local host=127.0.0.1; [ "$TUNNEL" = none ] || [ "$TUNNEL" = runpod ] && host=0.0.0.0
+  start mcp "$LOGS/mcp.log" env ULTRON_MCP_HOST=$host "$PYA" "$LINUX/mcp_remote.py"
+  wait_http "http://127.0.0.1:$MPORT/healthz" 60 || { echo "connector did not come up: tail $LOGS/mcp.log"; exit 1; }
+  case "$TUNNEL" in
+    cloudflare)
+      : > "$LOGS/tunnel.log"
+      start tunnel "$LOGS/tunnel.log" cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$MPORT"
+      for _ in $(seq 40); do [ -n "$(public_url)" ] && break; sleep 1; done;;
+    cloudflare-named)
+      start tunnel "$LOGS/tunnel.log" cloudflared tunnel --no-autoupdate run --token "${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}";;
+  esac
+  public_url > "$RUN/public_url" 2>/dev/null || true
+  # the connector reads run/public_url when it builds download links
+  if [ -n "$warm" ]; then cmd_warm "$warm"; fi
+  cmd_url
+}
+
+cmd_down() { stop tunnel; stop mcp; stop cuda; pkill -f "$LINUX/cuda_serve/workers/" 2>/dev/null || true; }
+
+cmd_url() {
+  local u; u="$(cat "$RUN/public_url" 2>/dev/null || true)"
+  [ -n "$u" ] || u="$(public_url 2>/dev/null || true)"
+  if [ -z "$u" ]; then echo "no public URL yet (tunnel=$TUNNEL); see $LOGS/tunnel.log"; return 1; fi
+  echo
+  echo "  Claude connector URL (Settings > Connectors > Add custom connector):"
+  echo "      $u/$ULTRON_MCP_TOKEN/mcp"
+  echo "  Upload a file:   curl -T clip.mp4 \"$u/$ULTRON_MCP_TOKEN/upload?name=clip.mp4\""
+  echo "  Keep this URL private: the long code in it is the password."
+  [ "$TUNNEL" = cloudflare ] && echo "  (quick tunnel: the address changes every start; set ULTRON_TUNNEL=cloudflare-named for a fixed one)"
+  echo
+}
+
+cmd_status() {
+  for s in cuda mcp tunnel; do alive $s && echo "  $s: running (pid $(cat "$RUN/$s.pid"))" || echo "  $s: stopped"; done
+  curl -s -m 3 "http://127.0.0.1:$CPORT/health" && echo
+  nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu --format=csv,noheader
+}
+
+cmd_logs() {
+  case "${1:-cuda}" in
+    cuda) tail -n 100 -f "$LOGS/cuda-serve.log";; mcp) tail -n 100 -f "$LOGS/mcp.log";;
+    tunnel) tail -n 100 -f "$LOGS/tunnel.log";; *) tail -n 100 -f "$LOGS/$1.log";;
+  esac
+}
+
+cmd_warm() {
+  echo "loading $1 ..."
+  curl -sf -m 1800 -X POST "http://127.0.0.1:$CPORT/v1/load-model" -H 'content-type: application/json' -d "{\"model\":\"$1\"}" && echo
+}
+
+ok() { printf '  \033[32mOK\033[0m   %s\n' "$*"; }
+bad() { printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILS=$((FAILS+1)); }
+cmd_doctor() {
+  FAILS=0
+  echo "tools:"
+  for t in ffmpeg git uv cloudflared node nvidia-smi; do command -v $t >/dev/null && ok "$t" || bad "$t missing"; done
+  echo "python environments (torch sees the GPU?):"
+  for py in "$ULTRON_HOME"/venvs/*/bin/python "$ULTRON_FISH_DIR/.venv/bin/python" "$ULTRON_HOME/acestep/ACE-Step-1.5/.venv/bin/python" "$ULTRON_LATENTSYNC_PY"; do
+    [ -x "$py" ] || continue
+    r=$("$py" -c "import torch; print(torch.__version__, torch.cuda.is_available() and torch.cuda.get_device_name(0)); torch.zeros(1, device='cuda')" 2>&1 | tail -1) \
+      && ok "$py: $r" || bad "$py: $r"
+  done
+  echo "weights / files:"
+  [ -f "$ULTRON_FISH_DIR/checkpoints/s2-pro/codec.pth" ] && ok "Fish S2 Pro" || echo "  --   Fish S2 Pro not installed"
+  [ -f "$ULTRON_LATENTSYNC_DIR/checkpoints/latentsync_unet.pt" ] || [ -f "$ULTRON_LATENTSYNC_DIR/checkpoints/1.6/latentsync_unet.pt" ] && ok "LatentSync 1.6" || echo "  --   LatentSync not installed"
+  [ -d "$ULTRON_ASR_MODEL" ] && ok "Whisper turbo (faster-whisper)" || bad "Whisper weights missing at $ULTRON_ASR_MODEL"
+  [ -f "$ULTRON_AVATAR/inputs/my_voice_ref.wav" ] && ok "voice reference" || echo "  --   no voice reference at $ULTRON_AVATAR/inputs/my_voice_ref.wav (upload one to use voice='mine')"
+  echo "services:"
+  curl -sf -m 3 "http://127.0.0.1:$CPORT/v1/models" | python3 -c "
+import sys, json
+for m in json.load(sys.stdin)['data']:
+    print('  %-5s %-24s %6.1f GB  %s' % ('OK' if m['installed'] else '--', m['id'], m['bytes_on_disk']/1e9, m['state']))" || bad "cuda-serve not answering on :$CPORT"
+  curl -sf -m 3 "http://127.0.0.1:$MPORT/healthz" >/dev/null && ok "connector on :$MPORT" || bad "connector not answering on :$MPORT"
+  u="$(cat "$RUN/public_url" 2>/dev/null || true)"
+  [ -n "$u" ] && { curl -sf -m 10 "$u/healthz" >/dev/null && ok "public URL reachable: $u" || bad "public URL not reachable: $u"; }
+  [ $FAILS = 0 ] && echo "all good" || { echo "$FAILS problem(s)"; return 1; }
+}
+
+cmd_selftest() {
+  local what="${1:-all}" out="$ULTRON_HOME/outputs/selftest"; mkdir -p "$out"
+  "$PYA" "$LINUX/tests/selftest.py" --what "$what" --out "$out" --port "$CPORT"
+}
+
+cmd_sync() {
+  [ -n "${ULTRON_OUTPUTS_REMOTE:-}" ] || { echo "set ULTRON_OUTPUTS_REMOTE (an rclone remote:path) in $ULTRON_HOME/config.env"; exit 1; }
+  rclone copy "$ULTRON_HOME/outputs" "$ULTRON_OUTPUTS_REMOTE/outputs" --transfers 8 -P
+  rclone copy "$ULTRON_HOME/inputs" "$ULTRON_OUTPUTS_REMOTE/inputs" --transfers 8 -P
+}
+
+case "${1:-}" in
+  up) shift; cmd_up "$@";; down) cmd_down;; restart) cmd_down; shift; cmd_up "$@";;
+  status) cmd_status;; url) cmd_url;; logs) shift; cmd_logs "$@";; doctor) cmd_doctor;;
+  selftest) shift; cmd_selftest "$@";; warm) cmd_warm "${2:?model id}";; sync-outputs) cmd_sync;;
+  update) git -C "$ENGINE" pull --ff-only && exec bash "$LINUX/setup.sh";;
+  *) sed -n '2,23p' "$0"; exit 1;;
+esac
