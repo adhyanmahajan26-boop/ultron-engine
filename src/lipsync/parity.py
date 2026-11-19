@@ -134,10 +134,22 @@ def weights_audit(official: Path, other: Path, also: Path | None = None) -> dict
     by_numel = {}
     for k, v in M.items():
         by_numel.setdefault(v.size, []).append(k)
-    missing, near, matched = [], [], 0
+    missing, near, split, matched = [], [], [], 0
     for k, v in O.items():
         if _fp(v) in idx:
             matched += 1
+            continue
+        # split match: ports often store one fused tensor as equal chunks along dim 0
+        # (GEGLU ff.net.0.proj -> linear1 + linear2 in the MLX port, fused qkv -> q, k, v)
+        chunks_hit = None
+        for n in (2, 3):
+            if v.ndim and v.shape[0] % n == 0:
+                parts = np.split(v, n, axis=0)
+                if all(_fp(p) in idx for p in parts):
+                    chunks_hit = [idx[_fp(p)][0] for p in parts]
+                    break
+        if chunks_hit:
+            split.append((k, chunks_hit))
             continue
         # near match: same numel and close values in some layout (fp16/bf16 rounding in the port)
         hit = None
@@ -157,6 +169,7 @@ def weights_audit(official: Path, other: Path, also: Path | None = None) -> dict
         g = ".".join(p for p in k.split(".") if not p.isdigit())
         groups[g] = groups.get(g, 0) + 1
     res = {"official_tensors": len(O), "other_tensors": len(M), "exact": matched, "near": len(near),
+           "split_exact": len(split), "split_sample": [f"{k} = concat({', '.join(p)})" for k, p in split[:3]],
            "missing": len(missing), "missing_by_kind": dict(sorted(groups.items(), key=lambda t: -t[1])[:30]),
            "missing_sample": missing[:20],
            "audio_attention_missing": [k for k in missing if "attn2" in k][:20]}

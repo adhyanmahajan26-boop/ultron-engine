@@ -48,6 +48,13 @@ python src/lipsync/parity.py teacher par/official par/mlx && python src/lipsync/
 python src/lipsync/clone.py --clip addy.mp4 --voice addy_fish.wav --out-dir work/clone --sweep quick
 ```
 
+Studio state (19 Nov 2026): official code installed at `~/jstest/work/latentsync` (torch 2.5.1, MPS), smoke test OK.
+Only the **1.5** UNet is on disk (sha256 `6440b49a7ccc…`, = ByteDance/LatentSync-1.5); official 1.6 is `0a478e89eb66…`
+(5.07 GB, not downloaded). The MLX port's `latentsync_unet_mlx.safetensors` is that 1.5 checkpoint converted exactly
+(`parity.py weights`: 1174 exact + 72 GEGLU split-exact, 0 missing, attn2 complete); the port has no 1.6 weights
+(`checkpoints/v1.6/` does not exist), so any MLX "1.6" result so far was 1.5 weights at 512 px or never ran.
+whisper/tiny.pt is byte-identical in 1.5 and 1.6.
+
 Keep whichever backend matches official quality (MLX only if parity passes and it is faster). Judge every result on
 the full-face contact sheet, not only the numbers: metric-tuned settings drew a cartoon "duck pout" before.
 
