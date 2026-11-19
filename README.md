@@ -27,12 +27,18 @@ If you use **Claude Code**, just open the folder and say "set this up": [CLAUDE.
 
 Read [docs/QUICKSTART.md](docs/QUICKSTART.md) for your first video.
 
+**Rented Linux NVIDIA GPU (e.g. RTX 5090)**: one command installs everything, downloads the weights and prints a URL
+for the Claude connector ([docs/LINUX.md](docs/LINUX.md)):
+```bash
+curl -fsSL https://raw.githubusercontent.com/adhyanmahajan26-boop/ultron-engine/main/linux/bootstrap.sh | HF_TOKEN=hf_xxx bash
+```
+
 ## Honest status
-- **Tested on one machine** (M3 Ultra, 96 GB, macOS). Local models are **MLX builds: Apple Silicon only**. On NVIDIA/Linux use the cloud route.
+- **Tested on one machine** (M3 Ultra, 96 GB, macOS). Local models are **MLX builds: Apple Silicon only**. On NVIDIA/Linux use `linux/setup.sh` ([docs/LINUX.md](docs/LINUX.md)): CUDA builds of the same models behind the same connector; offline-tested, not yet measured on a GPU.
 - **Cloud GPU support is experimental**: the adapter protocol and a worker template are here ([docs/CLOUD.md](docs/CLOUD.md)), but we have not run it against a real provider and the template contains no model code.
 - Some models are large (LTX about 43 GB, H3 about 70 GB) and need a lot of RAM: [docs/HARDWARE.md](docs/HARDWARE.md).
 - The Apple MLX port of LatentSync we use is not included; lip-sync is optional (LTX speaks natively).
 - Models have their own licences, some non-commercial: [docs/LICENSES.md](docs/LICENSES.md). Fan content of copyrighted characters is for private use only.
 
 ## Documentation
-[QUICKSTART](docs/QUICKSTART.md) | [ARCHITECTURE](docs/ARCHITECTURE.md) | [MODELS](docs/MODELS.md) | [HARDWARE](docs/HARDWARE.md) | [CLOUD](docs/CLOUD.md) | [MEMORY_AND_QUEUE](docs/MEMORY_AND_QUEUE.md) | [PROMPTING](docs/PROMPTING.md) | [RESULTS](docs/RESULTS.md) | [LICENSES](docs/LICENSES.md) | [skills/](skills)
+[QUICKSTART](docs/QUICKSTART.md) | [LINUX GPU](docs/LINUX.md) | [ARCHITECTURE](docs/ARCHITECTURE.md) | [MODELS](docs/MODELS.md) | [HARDWARE](docs/HARDWARE.md) | [CLOUD](docs/CLOUD.md) | [MEMORY_AND_QUEUE](docs/MEMORY_AND_QUEUE.md) | [PROMPTING](docs/PROMPTING.md) | [RESULTS](docs/RESULTS.md) | [LICENSES](docs/LICENSES.md) | [skills/](skills)

@@ -1,0 +1,15 @@
+# Studio MCP server (src/studio/server.py + linux/mcp_remote.py), Whisper ASR and the QA tools in src/tools.
+torch
+mcp>=1.8,<2
+httpx>=0.27
+uvicorn[standard]>=0.29
+faster-whisper>=1.1
+numpy
+soundfile
+librosa
+opencv-python-headless
+onnxruntime-gpu
+insightface==0.7.3
+huggingface_hub[hf_xet,cli]>=1.32,<3
+fastapi>=0.110
+python-multipart

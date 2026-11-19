@@ -1,0 +1,17 @@
+# cuda-serve + LTX-2.5 + Qwen-Image 2.1 (diffusers). torch comes from uv's --torch-backend=auto (matches the driver).
+torch
+torchvision
+diffusers==0.43.0
+transformers>=5.17
+accelerate>=1.10
+safetensors>=0.8.0
+sentencepiece
+protobuf
+av
+imageio[ffmpeg]
+pillow
+numpy
+huggingface_hub[hf_xet]>=1.32,<3
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart

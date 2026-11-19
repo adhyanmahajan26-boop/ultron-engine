@@ -1,0 +1,4 @@
+# chatterbox-tts pins torch==2.6.0, which has no kernels for Blackwell (RTX 50xx, sm_120). Override to a current torch.
+torch>=2.7
+torchaudio>=2.7
+gradio>=5

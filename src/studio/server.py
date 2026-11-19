@@ -46,7 +46,8 @@ AVATAR_PY = AVATAR / ".venv/bin/python"
 VOICE_REF = AVATAR / "inputs/my_voice_ref.wav"
 VOICE_REF_TEXT = AVATAR / "inputs/my_voice_ref.txt"
 DEFAULT_FOOTAGE = AVATAR / "inputs/source_clip.mp4"
-NODE_BIN = HOME / "Library/pnpm"
+NODE_BIN = Path(os.environ.get("CONTENT_STUDIO_NODE_BIN", HOME / "Library/pnpm"))
+IS_LINUX = sys.platform.startswith("linux")
 
 # Quality presets -> mlx-serve model ids. Anything else passed as `model` is used verbatim.
 IMAGE_MODELS = {
@@ -60,8 +61,19 @@ VIDEO_MODELS = {
 }
 MUSIC_MODEL = "ddalcu/ACE-Step-1.5-XL-Turbo-MLX-Serve-8bit"
 TTS_MODEL = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16"
-ASR_MODEL = AVATAR / "models/whisper-turbo"      # local Whisper-turbo (mlx-audio)
-ASR_SCRIPT = STUDIO / "asr.py"
+ASR_MODEL = Path(os.environ.get("ULTRON_ASR_MODEL", AVATAR / "models/whisper-turbo"))  # Mac: mlx-audio; Linux: faster-whisper
+ASR_SCRIPT = Path(os.environ.get("ULTRON_ASR_SCRIPT", STUDIO / "asr.py"))
+
+# Linux/CUDA (linux/setup.sh) runs cuda-serve instead of mlx-serve and writes the presets that fit that machine,
+# e.g. {"video": {"fast": "ltx-2.5", ...}}. Keys: image, video, edit, music, tts. The Mac never sets this.
+_PRESETS_FILE = os.environ.get("CONTENT_STUDIO_PRESETS")
+if _PRESETS_FILE and Path(_PRESETS_FILE).is_file():
+    _pr = json.loads(Path(_PRESETS_FILE).read_text())
+    IMAGE_MODELS.update(_pr.get("image", {}))
+    VIDEO_MODELS.update(_pr.get("video", {}))
+    EDIT_MODEL = _pr.get("edit", EDIT_MODEL)
+    MUSIC_MODEL = _pr.get("music", MUSIC_MODEL)
+    TTS_MODEL = _pr.get("tts", TTS_MODEL)
 
 mcp = FastMCP("content-studio")
 
@@ -389,7 +401,8 @@ async def studio_status() -> dict:
         status["mlx_serve"] = {"up": True, "models": cats}
     except Exception as e:
         status["mlx_serve"] = {"up": False, "error": str(e),
-                               "fix": "Open the MLX Core app so mlx-serve listens on 127.0.0.1:11234."}
+                               "fix": ("Start cuda-serve: linux/ultron-linux up" if IS_LINUX else
+                                       "Open the MLX Core app so mlx-serve listens on 127.0.0.1:11234.")}
     status["presets"] = {
         "image": IMAGE_MODELS, "image_edit": EDIT_MODEL, "video": VIDEO_MODELS,
         "music": MUSIC_MODEL, "tts": TTS_MODEL,
@@ -408,14 +421,25 @@ async def studio_status() -> dict:
                                     "note": "generate_speech auto-verifies its output with this"}
     status["heavy_jobs"] = {"max_at_once": MAX_HEAVY, "slots_busy": _heavy_slots_busy(),
                             "rule": "extra jobs queue; do not submit more than one heavy job at a time"}
-    try:
-        vm = (await asyncio.create_subprocess_exec("vm_stat", stdout=asyncio.subprocess.PIPE))
-        out = (await vm.communicate())[0].decode()
-        page = 16384
-        free = sum(int(re.search(rf'{k}:\s+(\d+)', out).group(1)) for k in ("Pages free", "Pages inactive", "Pages purgeable"))
-        status["approx_free_memory_gb"] = round(free * page / 1e9, 1)
-    except Exception:
-        pass
+    if IS_LINUX:
+        try:
+            mem = dict(l.split(":", 1) for l in open("/proc/meminfo") if ":" in l)
+            status["approx_free_memory_gb"] = round(int(mem["MemAvailable"].split()[0]) / 2**20, 1)
+            smi = await asyncio.create_subprocess_exec(
+                "nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader",
+                stdout=asyncio.subprocess.PIPE)
+            status["gpu"] = (await smi.communicate())[0].decode().strip()
+        except Exception:
+            pass
+    else:
+        try:
+            vm = (await asyncio.create_subprocess_exec("vm_stat", stdout=asyncio.subprocess.PIPE))
+            out = (await vm.communicate())[0].decode()
+            page = 16384
+            free = sum(int(re.search(rf'{k}:\s+(\d+)', out).group(1)) for k in ("Pages free", "Pages inactive", "Pages purgeable"))
+            status["approx_free_memory_gb"] = round(free * page / 1e9, 1)
+        except Exception:
+            pass
     status["running_jobs"] = [_public(j) for j in _all_jobs(50) if j.get("status") == "running"]
     return status
 
@@ -700,11 +724,14 @@ async def generate_video(
     seed: int | None = None,
     first_frame_image: str | None = None,
     turbo: bool = True,
+    last_frame_image: str | None = None,
     wait_seconds: float = DEFAULT_WAIT,
 ) -> dict:
     """Generate a short video clip with sound (MiniMax-H3) from text, optionally starting
     from an image. quality: "fast" (4-bit, 41 GB) | "quality" (8-bit, 70 GB) | model id.
-    Vertical reel: width 512, height 896. num_frames ~24 per second. ~2+ min per clip."""
+    Vertical reel: width 512, height 896. num_frames ~24 per second. ~2+ min per clip.
+    On the Linux GPU setup the presets run LTX-2.5 (image-to-video with native speech): num_frames must be
+    8k+1 (97 = 4 s, 121 = 5 s, 241 = 10 s at 24 fps), 1024x576 landscape, and last_frame_image pins the end frame."""
     body: dict[str, Any] = {"model": _resolve(quality, VIDEO_MODELS, "fast"), "prompt": prompt,
                             "width": width, "height": height, "num_frames": num_frames, "turbo": turbo}
     if steps:
@@ -712,7 +739,9 @@ async def generate_video(
     if seed is not None:
         body["seed"] = seed
     ffi = str(_require_file(first_frame_image, "first frame image")) if first_frame_image else None
-    return await _start("video", prompt[:80], {"body": body, "first_frame_image": ffi}, wait_seconds)
+    lfi = str(_require_file(last_frame_image, "last frame image")) if last_frame_image else None
+    return await _start("video", prompt[:80], {"body": body, "first_frame_image": ffi, "last_frame_image": lfi},
+                        wait_seconds)
 
 
 @worker("video")
@@ -720,6 +749,8 @@ async def _video(p, job):
     body = dict(p["body"])
     if p["first_frame_image"]:
         body["first_frame_image"] = _b64_file(p["first_frame_image"])
+    if p.get("last_frame_image"):
+        body["last_frame_image"] = _b64_file(p["last_frame_image"])
     ev = await _post_sse("/v1/video/generations", body, job)
     return await _save_video(ev, body["prompt"], job)
 
@@ -732,6 +763,10 @@ async def _save_video(ev: dict, label: str, job: dict) -> dict:
     """mlx-serve's complete event carries raw rgb8 frames + s16le PCM (both base64).
     Encode them into an H.264/AAC MP4."""
     out = _out_path("video", label, "mp4")
+    if ev.get("format") == "mp4" and ev.get("path"):  # cuda-serve (Linux) hands back a finished MP4 on this machine
+        shutil.move(ev["path"], out)
+        return {"files": [str(out)], "frames": ev.get("frames"), "fps": ev.get("fps"),
+                "seconds": ev.get("seconds"), "size": f"{ev.get('width')}x{ev.get('height')}"}
     if ev.get("format") != "rgb8" or not isinstance(ev.get("data"), str):
         raise RuntimeError(f"unrecognised video response: { {k: v for k, v in ev.items() if not isinstance(v, str) or len(v) < 100} }")
     w, h, fps = ev["width"], ev["height"], ev.get("fps", 24)
