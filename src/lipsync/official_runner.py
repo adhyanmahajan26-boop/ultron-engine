@@ -95,7 +95,7 @@ def mps_patches() -> list[str]:
     import torch.nn.functional as F
 
     if getattr(F.interpolate, "_ultron_mps", False):
-        return ["interpolate5d"]
+        return ["interpolate5d", sliced_sdpa_patch()]
     orig = F.interpolate
 
     def interpolate(input, size=None, scale_factor=None, mode="nearest", *a, **kw):
@@ -108,7 +108,58 @@ def mps_patches() -> list[str]:
     interpolate._ultron_mps = True
     F.interpolate = interpolate
     torch.nn.functional.interpolate = interpolate
-    return ["interpolate5d"]
+    return ["interpolate5d", sliced_sdpa_patch()]
+
+
+SDPA_BUDGET = int(float(os.environ.get("ULTRON_SDPA_BUDGET_GB", "1")) * 2**30)
+
+
+def sliced_sdpa(sdpa, q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None, budget=None):
+    """scaled_dot_product_attention in slices over (batch*heads) and, if needed, query rows. None if not applicable.
+
+    Every (batch, head, query-row) output depends only on its own row of scores, so slicing gives the same result."""
+    if attn_mask is not None or dropout_p or is_causal or q.dim() != 4:
+        return None
+    budget = budget or SDPA_BUDGET
+    b, h, lq, _ = q.shape
+    row = k.shape[-2] * q.element_size() * 3          # scores + softmax + slack, per query row
+    if b * h * lq * row <= budget:
+        return None
+    n = b * h
+    qf, kf, vf = (t.reshape(n, t.shape[-2], t.shape[-1]) for t in (q, k, v))
+    per = max(1, budget // (lq * row))                # (batch*head) items per slice
+    qrows = lq if lq * row <= budget else max(1, budget // row)
+    out = qf.new_empty(n, lq, v.shape[-1])
+    kw = {} if scale is None else {"scale": scale}
+    for n0 in range(0, n, per):
+        for r0 in range(0, lq, qrows):
+            out[n0:n0 + per, r0:r0 + qrows] = sdpa(qf[n0:n0 + per, None, r0:r0 + qrows], kf[n0:n0 + per, None],
+                                                   vf[n0:n0 + per, None], **kw)[:, 0]   # MPS SDPA wants 4D
+    return out.reshape(b, h, lq, v.shape[-1])
+
+
+def sliced_sdpa_patch() -> str:
+    """At 512 px the spatial self-attention has 4096 tokens per frame: one full fp32 scores tensor for
+    16 frames x 2 (CFG) x 8 heads is ~17 GB, and MPS materialises it, so 1.6 pushed the process to 110 GB and swapped.
+    Slicing keeps each piece under ULTRON_SDPA_BUDGET_GB (default 1)."""
+    import torch
+    import torch.nn.functional as F
+
+    if getattr(F.scaled_dot_product_attention, "_ultron_mps", False):
+        return "sdpa_slice"
+    orig = F.scaled_dot_product_attention
+
+    def sdpa(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, *a, **kw):
+        if query.device.type == "mps" and not a and set(kw) <= {"scale"}:
+            y = sliced_sdpa(orig, query, key, value, attn_mask, dropout_p, is_causal, kw.get("scale"))
+            if y is not None:
+                return y
+        return orig(query, key, value, attn_mask, dropout_p, is_causal, *a, **kw)
+
+    sdpa._ultron_mps = True
+    F.scaled_dot_product_attention = sdpa
+    torch.nn.functional.scaled_dot_product_attention = sdpa
+    return "sdpa_slice"
 
 
 def import_upstream(ls_dir: Path):

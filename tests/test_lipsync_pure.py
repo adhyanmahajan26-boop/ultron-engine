@@ -118,6 +118,22 @@ def test_nearest5d_as_2d_matches_3d():
     assert official_runner.nearest5d_as_2d(F.interpolate, x, scale_factor=2.0) is None  # time axis scaled
     assert official_runner.nearest5d_as_2d(F.interpolate, x, scale_factor=[1, 2, 2], mode="trilinear") is None
 
+def test_sliced_sdpa_matches_full():
+    try:
+        import torch
+        import torch.nn.functional as F
+    except ImportError:
+        return
+    from lipsync import official_runner
+    torch.manual_seed(0)
+    q, k, v = torch.randn(3, 4, 40, 16), torch.randn(3, 4, 40, 16), torch.randn(3, 4, 40, 16)
+    want = F.scaled_dot_product_attention(q, k, v)
+    for budget in (40 * 40 * 4 * 3 * 5, 40 * 4 * 3 * 7, 1):   # whole (b*h) slices, query-row slices, one row at a time
+        got = official_runner.sliced_sdpa(F.scaled_dot_product_attention, q, k, v, budget=budget)
+        assert torch.allclose(want, got, atol=1e-6), budget
+    assert official_runner.sliced_sdpa(F.scaled_dot_product_attention, q, k, v, budget=2**30) is None  # fits whole
+    assert official_runner.sliced_sdpa(F.scaled_dot_product_attention, q, k, v, attn_mask=torch.ones(40, 40), budget=1) is None
+
 
 def test_single_instance_lock():
     import subprocess
