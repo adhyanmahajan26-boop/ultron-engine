@@ -78,15 +78,16 @@ def has_nvidia() -> bool:
     return shutil.which("nvidia-smi") is not None
 
 
-def default_backend() -> str:
-    """auto: NVIDIA -> official (CUDA); Apple Silicon -> official (MPS) when its venv exists, else mlx."""
+def default_backend(version: str = "1.6") -> str:
+    """auto: NVIDIA -> official (CUDA); Apple Silicon -> official (MPS) when its venv and the weights for
+    `version` exist, else mlx (which only has 1.5)."""
     b = os.environ.get("ULTRON_LIPSYNC_BACKEND", "auto")
     if b != "auto":
         return b
     if has_nvidia():
         return "official"
     if is_apple_silicon():
-        return "official" if latentsync_python().exists() and checkpoint("1.6").exists() else "mlx"
+        return "official" if latentsync_python().exists() and checkpoint(version).exists() else "mlx"
     return "official"
 
 

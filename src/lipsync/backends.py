@@ -47,7 +47,7 @@ class Job:
     report: Optional[str] = None
 
     def resolved_backend(self) -> str:
-        b = config.default_backend() if self.backend == "auto" else self.backend
+        b = config.default_backend(self.version) if self.backend == "auto" else self.backend
         if b not in BACKENDS:
             raise ValueError(f"backend must be one of {BACKENDS} or auto, got {b!r}")
         return b

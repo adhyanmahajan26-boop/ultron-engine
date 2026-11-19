@@ -116,6 +116,11 @@ if [ "$SKIP_VENV" = 0 ] && [ "$(uname -s)" = Darwin ] && ! "$PY" -c "import scip
   echo "   scipy $("$PY" -c 'import scipy;print(scipy.__version__)' 2>/dev/null) fails to load on this macOS; pinning scipy==1.14.1"
   pip_install "scipy==1.14.1"
 fi
+# librosa (used by the QA in src/lipsync/qa.py) imports pkg_resources, which setuptools 81+ removed.
+if [ "$SKIP_VENV" = 0 ] && ! "$PY" -c "import pkg_resources" >/dev/null 2>&1; then
+  echo "   setuptools has no pkg_resources (librosa needs it); pinning setuptools<81"
+  pip_install "setuptools<81"
+fi
 "$PY" - <<'EOF'
 import torch
 dev = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
