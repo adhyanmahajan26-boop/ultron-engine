@@ -504,6 +504,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_args(ap)
     args = ap.parse_args(argv)
+    # progress lines go to a log file when run.py/clone.py call us; line-buffer so the log shows them live
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
     if args.ref_idx not in (None, "auto"):
         args.ref_idx = int(args.ref_idx)
     if args.report is None:
