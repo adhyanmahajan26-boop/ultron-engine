@@ -41,6 +41,15 @@ uv run ltx-2-mlx generate --distilled --model @LTX@/pack \
 - **a2v (audio-driven) works with the distilled weights, no download**: `ltx-2-mlx a2v --low-ram --model pack --audio clean.wav --image still.png --frames 97 --stage1-steps 12 --cfg-scale 1.0` (stage 2 swaps to the pre-fused distilled file). ~4.5-5 min per 4-5 s. Output audio == input audio. Mouth LEADS the audio by ~0.29 s -> advance the audio 0.29 s (trim silence at its start). Test1 prompt that worked: 'A man in a black hoodie sits in a warm lamp-lit room and speaks to the camera in a calm, composed, steady manner, his lips moving exactly with the voice. Subtle restrained expression, head almost still, natural blinks, static camera.'
 - **Never put negations about objects/hands in LTX prompts** ('hands not visible' made a bottle appear and the head toss).
 
+## a2v on real footage of the user (C0656 test, 2026-11-19)
+- Still: a frontal, mouth-closed frame from the user's own footage, cropped to 576x1024 (vertical). Skip frames with hands even if they score higher on face metrics.
+- Audio: one continuous phrase cut at a real pause, mono, loudnorm -14 LUFS; keep the full-rate copy for the final mux.
+- Command: `ltx-2-mlx a2v --low-ram --model pack --audio clean.wav --image still.png --height 1024 --width 576 --frames 121 --frame-rate 24 --stage1-steps 12 --cfg-scale 1.0` (a2v needs `--frame-rate 24`). 121 frames = 5 s took ~5.5 min (stage1 3:38, stage2 1:19), peak ~45 GB system.
+- Prompt: the calm talking-head prompt, but describe the still's real scene (clothes, background) instead of a generic room.
+- **Audio offset: measure it per clip with SyncNet** (scan -0.12 to +0.36 s). On this clip SyncNet aligned at +0.08 s; the old fixed 0.29 s advance was worse. The mouth-vs-loudness metric over-reads because LTX opens the mouth on the breath before a word.
+- **Seeds vary a lot**: seed 7 SyncNet 3.9, ArcFace 0.86 vs the still (calm, sharp); seed 42 SyncNet 1.7, over-expressive "O" mouths and raised brows. Run 2+ seeds and reject any take with SyncNet < 3.
+- Compared with LatentSync 1.5 + mouthblend on the same footage (SyncNet 8.1-9.1): LTX a2v moves the whole head naturally but syncs far less tightly. Use the LatentSync blend for lip-sync on existing footage; use LTX a2v when there is no usable source video or the whole head should move.
+
 ## Memory rules (user complained twice about memory pressure)
 - ONE heavy job at a time: LTX, mflux Qwen-Edit (2-ref @1024x576 = ~65 GB incl. compressed!), LatentSync, HyperFrames render, mlx-serve models. Run `tools/heavy_guard.sh && <job>` before every heavy job; it refuses if another is running, if the studio server holds models (call free_memory), or if used memory > 55 GB.
 - Stopping a LatentSync/other job: `pkill -f scripts/lipsync.py` is NOT enough, its worker `scripts/inference.py` survives (was holding 23 GB). Kill both by name, then check `top -l 1 -o mem -n 5 -stats pid,command,mem,cmprs`.
