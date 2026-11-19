@@ -100,6 +100,25 @@ def test_qa_lag_corr_finds_delay():
                        "silent": {"speech_vs_silent_corr": 0.95, "silent_open_ratio": 0.2}})[0] == "FAIL"
 
 
+
+
+def test_nearest5d_as_2d_matches_3d():
+    try:
+        import torch
+        import torch.nn.functional as F
+    except ImportError:
+        return
+    from lipsync import official_runner
+    x = torch.randn(2, 5, 16, 8, 12)
+    want = F.interpolate(x, scale_factor=[1.0, 2.0, 2.0], mode="nearest")
+    got = official_runner.nearest5d_as_2d(F.interpolate, x, scale_factor=[1.0, 2.0, 2.0])
+    assert torch.equal(want, got)
+    want = F.interpolate(x, size=(16, 24, 36), mode="nearest")
+    assert torch.equal(want, official_runner.nearest5d_as_2d(F.interpolate, x, size=(16, 24, 36)))
+    assert official_runner.nearest5d_as_2d(F.interpolate, x, scale_factor=2.0) is None  # time axis scaled
+    assert official_runner.nearest5d_as_2d(F.interpolate, x, scale_factor=[1, 2, 2], mode="trilinear") is None
+
+
 if __name__ == "__main__":
     for k, v in list(globals().items()):
         if k.startswith("test_"):

@@ -66,6 +66,51 @@ def pick_dtype(device: str, want: str = "auto"):
     return torch.float32
 
 
+def nearest5d_as_2d(interp, x, size=None, scale_factor=None, mode="nearest"):
+    """5D nearest resize that keeps the frame axis, done as a 2D resize per frame. None if not applicable."""
+    if x.dim() != 5 or mode != "nearest":
+        return None
+    b, c, f, h, w = x.shape
+    hw = None
+    if scale_factor is not None and size is None:
+        sf = scale_factor if isinstance(scale_factor, (list, tuple)) else [scale_factor] * 3
+        if float(sf[0]) == 1.0:
+            hw = (int(math.floor(h * float(sf[1]))), int(math.floor(w * float(sf[2]))))
+    elif size is not None and scale_factor is None and isinstance(size, (list, tuple)) and int(size[0]) == f:
+        hw = (int(size[1]), int(size[2]))
+    if hw is None:
+        return None
+    y = interp(x.permute(0, 2, 1, 3, 4).reshape(b * f, c, h, w), size=hw, mode="nearest")
+    return y.reshape(b, f, c, hw[0], hw[1]).permute(0, 2, 1, 3, 4).contiguous()
+
+
+def mps_patches() -> list[str]:
+    """Speed-ups for Apple MPS that keep results identical.
+
+    The UNet upsamples (b, c, f, h, w) with a 5D nearest interpolate (scale [1, 2, 2]). MPS has no
+    upsample_nearest3d kernel, so with PYTORCH_ENABLE_MPS_FALLBACK every up block copies the tensor to the CPU
+    and back: that made 1.6 (512 px) take ~43 min per 16-frame chunk on an M3 Ultra. Nearest with a frame
+    scale of 1 is exactly a 2D nearest per frame, which MPS runs natively."""
+    import torch
+    import torch.nn.functional as F
+
+    if getattr(F.interpolate, "_ultron_mps", False):
+        return ["interpolate5d"]
+    orig = F.interpolate
+
+    def interpolate(input, size=None, scale_factor=None, mode="nearest", *a, **kw):
+        if input.device.type == "mps" and not a and not kw.get("antialias"):
+            y = nearest5d_as_2d(orig, input, size, scale_factor, mode)
+            if y is not None:
+                return y
+        return orig(input, size, scale_factor, mode, *a, **kw)
+
+    interpolate._ultron_mps = True
+    F.interpolate = interpolate
+    torch.nn.functional.interpolate = interpolate
+    return ["interpolate5d"]
+
+
 def import_upstream(ls_dir: Path):
     """Put the upstream checkout on sys.path and cd into it (upstream uses relative paths:
     configs/, latentsync/utils/mask.png, checkpoints/auxiliary)."""
@@ -299,6 +344,8 @@ def make_classes():
                         eps = eu + guidance * (ea - eu)
                     latents = self.scheduler.step(eps, t, latents, **extra).prev_sample
                 dec = self.decode_latents(latents)
+                if not torch.isfinite(dec).all():
+                    raise SystemExit(f"chunk {i}: NaN/inf in the decoded frames at dtype={dtype}; rerun with --dtype fp32")
                 if d:
                     d.put(f"chunk{i}/latents_final", latents)
                     d.put(f"chunk{i}/decoded", dec)
@@ -408,6 +455,7 @@ def run(args) -> dict:
 
     device = pick_device(args.device)
     dtype = pick_dtype(device, args.dtype)
+    patches = mps_patches() if device == "mps" else []
     audio_device = args.audio_device if args.audio_device != "auto" else ("cuda" if device.startswith("cuda") else "cpu")
     conf = OmegaConf.load(cfg_rel)
     if args.resolution and args.resolution != resolution:
@@ -424,7 +472,8 @@ def run(args) -> dict:
                     "-ar", "16000", str(a16)], check=True)
 
     print(f"device={device} dtype={str(dtype).split('.')[-1]} whisper_on={audio_device} version={args.version} "
-          f"res={resolution} steps={args.steps} guidance={guidance} ref={args.ref_mode} seed={seed} upstream={rev[:10]}")
+          f"res={resolution} steps={args.steps} guidance={guidance} ref={args.ref_mode} seed={seed} upstream={rev[:10]} "
+          f"patches={','.join(patches) or '-'}")
     set_seed(seed)
     scheduler = DDIMScheduler.from_pretrained("configs")
     audio_encoder = Audio2Feature(model_path=str(whisper), device=audio_device, num_frames=conf.data.num_frames,
@@ -465,7 +514,7 @@ def run(args) -> dict:
         "out": str(out), "video": str(video), "audio": str(audio), "backend": "official", "upstream_commit": rev,
         "version": args.version, "resolution": resolution, "steps": args.steps, "guidance": guidance, "seed": seed,
         "device": device, "dtype": str(dtype).split(".")[-1], "deepcache": deepcache, "parity": bool(args.parity),
-        "weights": key_report, "frames": int(len(frames)), "seconds_total": round(time.time() - t_start, 1),
+        "patches": patches, "weights": key_report, "frames": int(len(frames)), "seconds_total": round(time.time() - t_start, 1),
     })
     if dump:
         dump.close({"report": rep})
