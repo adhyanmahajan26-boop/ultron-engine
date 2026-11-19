@@ -152,6 +152,27 @@ def test_single_instance_lock():
             del os.environ["ULTRON_LOCK_DIR"]
 
 
+def test_mouthblend_keeps_outside_and_fixes_pink():
+    try:
+        import cv2  # noqa: F401
+    except ImportError:
+        return
+    from lipsync import mouthblend
+    h, w = 200, 200
+    src = np.full((h, w, 3), (60, 80, 110), np.uint8)       # skin/beard-ish, BGR
+    gen = src.copy()
+    gen[60:200, :] = (40, 40, 200)                           # pink/red smear over the whole lower half
+    lm = np.zeros((106, 2), np.float32)
+    ang = np.linspace(0, 2 * np.pi, 20, endpoint=False)
+    lm[52:72] = np.stack([100 + 30 * np.cos(ang), 120 + 12 * np.sin(ang)], 1)
+    out = mouthblend.blend([src], [gen], [lm], [lm], margin=0.2, feather=0.05, chroma=1.0)[0]
+    assert np.abs(out[10, 10].astype(int) - src[10, 10]).max() <= 1       # far from the mouth: source
+    assert np.abs(out[190, 10].astype(int) - src[190, 10]).max() <= 1     # beard below/aside: source, not smear
+    red_gen = int(gen[120, 100, 2]) - int(gen[120, 100, 0])
+    red_out = int(out[120, 100, 2]) - int(out[120, 100, 0])
+    assert red_out < red_gen                                               # pink pulled toward source colour
+
+
 if __name__ == "__main__":
     for k, v in list(globals().items()):
         if k.startswith("test_"):
