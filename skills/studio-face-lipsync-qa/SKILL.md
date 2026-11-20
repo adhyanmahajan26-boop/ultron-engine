@@ -14,6 +14,11 @@ description: Generate talking shots of the user (or their animated avatar) with 
 - Keep ONE canonical suit design (separately generated clips invent different suits). Replace backgrounds with an edit_image prompt that says "keep man + armour identical, replace ONLY background"; check similarity ≥ 0.9.
 - Person-matting tools (`hyperframes remove-background`, u2net) **drop armour/props** → don't use them on suits. They are fine on plain hoodie/cartoon avatars.
 
+## Official LatentSync backend (Nov 2026, read first)
+- `src/lipsync/` runs ByteDance's official PyTorch LatentSync on CUDA, Apple MPS or CPU (docs/LIPSYNC.md). Prefer it for 1.6 until `parity.py` shows the MLX port matches.
+- Uncut clone of any length: `python src/lipsync/clone.py --clip CLIP --voice VOICE.wav --out-dir DIR` (base check, sweep, full take, silent control, QA sheet, REPORT.md).
+- Talking/moving source -> `--ref-mode window` (training-like reference window, closed mouth). Watch `audio_sensitivity` in each report: ~0 means the model is not listening.
+
 ## Lip-sync (LatentSync)
 - Use **1.6 at 512 px** (`scripts/lipsync.py --version 1.6`): clearly sharper than 1.5, no mask artifacts seen, ~3 min per 2 s of video (≈4× slower than 1.5). One heavy job at a time; chain windows in a queue script that waits for the GPU to be idle.
 - Slice the audio per window from tightened speech; clip must be ≥ audio length; output length follows audio.
